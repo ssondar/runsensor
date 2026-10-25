@@ -105,7 +105,7 @@ const CMD     = "19b10011-e8f2-537e-4f6c-d104768a1214";
 const STATUS  = "19b10012-e8f2-537e-4f6c-d104768a1214";
 const DATA    = "19b10013-e8f2-537e-4f6c-d104768a1214";
 const END_IDX = 0xFFFFFFFF;
-const APP_VERSION = "웹 앱 v0.3 · 2026-10-24";
+const APP_VERSION = "웹 앱 v0.4 · 2026-10-25";
 
 const sensors = new Map();   // device.id -> sensor object
 let sessionName = null;
@@ -265,7 +265,7 @@ async function addSensor() {
     device.addEventListener("gattserverdisconnected", () => {
       const was = s.connected;
       s.connected = false;
-      if (s.download) { s.download = null; setMsg(s, "내려받는 중에 연결이 끊겼어요. 다시 연결해서 처음부터 받아 주세요.", true); }
+      if (s.download) { clearTimeout(s.download.timer); s.download = null; setMsg(s, "내려받는 중에 연결이 끊겼어요. 다시 연결해서 처음부터 받아 주세요.", true); }
       else if (was) setMsg(s, "연결이 끊겼어요. 센서가 켜져 있는지 확인하고 \"다시 연결\"을 누르세요.", true);
       else render();
     });
@@ -292,40 +292,82 @@ async function onCardAction(s, a) {
 }
 
 // ---------- download ----------
+// The app asks for 32 samples at a time ('G' + index) and asks again for anything that did not arrive.
+
+const CHUNK = 32;
+const CHUNK_TIMEOUT_MS = 1500;
+const MAX_RETRIES = 15;
 
 async function startDownload(s) {
   const expected = s.status.a || 0;
   if (expected === 0) { setMsg(s, "저장된 기록이 없어요."); return; }
-  s.download = { expected, received: 0, next: 0, missing: 0, rows: [] };
+  s.download = { expected, received: 0, rows: new Array(expected), next: 0, chunkEnd: 0, retries: 0, timer: null };
   setMsg(s, "내려받는 중... 화면을 켜 두세요.");
-  await sendCmd(s, "g");
+  requestChunk(s);
+}
+
+async function requestChunk(s) {
+  const d = s.download;
+  if (!d) return;
+  while (d.next < d.expected && d.rows[d.next]) d.next++;
+  if (d.next >= d.expected) { finishDownload(s); return; }
+  d.chunkEnd = Math.min(d.next + CHUNK, d.expected);
+  clearTimeout(d.timer);
+  d.timer = setTimeout(() => retryChunk(s), CHUNK_TIMEOUT_MS);
+  const buf = new Uint8Array(5);
+  buf[0] = 71;   // 'G'
+  new DataView(buf.buffer).setUint32(1, d.next, true);
+  try {
+    await s.cmd.writeValue(buf);
+  } catch (e) {
+    // the timer will try again
+  }
+}
+
+function retryChunk(s) {
+  const d = s.download;
+  if (!d) return;
+  if (++d.retries > MAX_RETRIES) { finishDownload(s); return; }
+  requestChunk(s);
 }
 
 function onData(s, dv) {
   const d = s.download;
   if (!d || dv.byteLength < 20) return;
   const idx = dv.getUint32(0, true);
-  if (idx === END_IDX) { finishDownload(s); return; }
-  if (idx > d.next) d.missing += idx - d.next;
-  d.next = idx + 1;
-  const t = dv.getUint32(4, true);
-  const v = [];
-  for (let k = 0; k < 6; k++) v.push(dv.getInt16(8 + 2 * k, true));
-  d.rows.push([t, ...v]);
-  d.received++;
-  if (d.received % 200 === 0) render();
+  if (idx === END_IDX) { d.expected = Math.min(d.expected, d.next); finishDownload(s); return; }
+  if (idx >= d.expected) return;
+  if (!d.rows[idx]) {
+    const v = [dv.getUint32(4, true)];
+    for (let k = 0; k < 6; k++) v.push(dv.getInt16(8 + 2 * k, true));
+    d.rows[idx] = v;
+    d.received++;
+    d.retries = 0;
+    if (d.received % 200 === 0) render();
+  }
+  if (idx === d.chunkEnd - 1) {
+    // last sample of this chunk: ask for the first gap (or the next chunk)
+    let gap = d.next;
+    while (gap < d.chunkEnd && d.rows[gap]) gap++;
+    if (gap < d.chunkEnd) d.retries++;
+    requestChunk(s);
+  }
 }
 
 function finishDownload(s) {
   const d = s.download;
+  clearTimeout(d.timer);
   s.download = null;
   // each recording starts at t = 0, so a smaller t means a new recording
-  let rec = 1, lastT = -1;
+  let rec = 1, lastT = -1, missing = 0, count = 0;
   const lines = ["rec,t_ms,ax_mg,ay_mg,az_mg,gx_01dps,gy_01dps,gz_01dps"];
-  for (const r of d.rows) {
+  for (let i = 0; i < d.expected; i++) {
+    const r = d.rows[i];
+    if (!r) { missing++; continue; }
     if (r[0] < lastT) rec++;
     lastT = r[0];
     lines.push(rec + "," + r.join(","));
+    count++;
   }
   const name = `${(s.device.name || "RunSensor")}_${sessionName || stamp()}.csv`;
   const blob = new Blob([lines.join("\n") + "\n"], { type: "text/csv" });
@@ -335,8 +377,8 @@ function finishDownload(s) {
   document.body.appendChild(a);
   a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
-  const miss = d.missing ? ` · 빠진 샘플 ${d.missing}개` : "";
-  setMsg(s, `${name} 저장 완료 (${d.rows.length.toLocaleString("ko-KR")}개, 기록 ${rec}개${miss})`, d.missing > 0);
+  const miss = missing ? ` · 빠진 샘플 ${missing}개` : " · 빠진 샘플 없음";
+  setMsg(s, `${name} 저장 완료 (${count.toLocaleString("ko-KR")}개, 기록 ${rec}개${miss})`, missing > 0);
 }
 
 // ---------- session ----------
