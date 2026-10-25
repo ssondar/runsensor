@@ -105,7 +105,7 @@ const CMD     = "19b10011-e8f2-537e-4f6c-d104768a1214";
 const STATUS  = "19b10012-e8f2-537e-4f6c-d104768a1214";
 const DATA    = "19b10013-e8f2-537e-4f6c-d104768a1214";
 const END_IDX = 0xFFFFFFFF;
-const APP_VERSION = "웹 앱 v0.6 · 2026-10-25";
+const APP_VERSION = "웹 앱 v0.7 · 2026-10-25";
 
 const sensors = new Map();   // device.id -> sensor object
 let sessionName = null;
@@ -295,7 +295,7 @@ async function onCardAction(s, a) {
 // Then it asks again only for the samples that did not arrive.
 // Firmware v0.4 ignores the count and always sends 32; that still works, just more slowly.
 
-const CHUNK = 512;
+const CHUNK = 1024;
 const MERGE_GAP = 16;           // in the repair passes, ask for nearby gaps together
 const FIRST_PACKET_MS = 1500;   // wait this long for the first packet after a request
 const IDLE_MS = 300;            // then this long after the last packet before moving on
@@ -357,30 +357,6 @@ function onTimeout(s) {
   requestChunk(s);
 }
 
-function onData(s, dv) {
-  const d = s.download;
-  if (!d || dv.byteLength < 20) return;
-  const idx = dv.getUint32(0, true);
-  if (idx === END_IDX) {   // asked past the end of the recording
-    d.expected = Math.min(d.expected, d.reqStart);
-    d.cursor = Math.min(d.cursor, d.expected);
-    requestChunk(s);
-    return;
-  }
-  if (idx >= d.expected) return;
-  d.lastIdx = idx;
-  if (!d.rows[idx]) {
-    const v = [dv.getUint32(4, true)];
-    for (let k = 0; k < 6; k++) v.push(dv.getInt16(8 + 2 * k, true));
-    d.rows[idx] = v;
-    d.received++;
-    d.retries = 0;
-    if (d.received % 500 === 0) showProgress(s);
-  }
-  if (idx >= d.chunkEnd - 1) requestChunk(s);   // chunk done: ask for the next one right away
-  else armTimer(s, IDLE_MS);                    // a packet may be lost; move on soon if the stream stops
-}
-
 function showProgress(s) {
   const d = s.download;
   const sec = (Date.now() - d.t0) / 1000;
@@ -388,6 +364,35 @@ function showProgress(s) {
   const left = rate > 0 ? (d.expected - d.received) / rate : 0;
   const pct = Math.floor(d.received / d.expected * 100);
   setMsg(s, `내려받는 중 ${pct}% · 초당 ${Math.round(rate)}개 · 남은 시간 약 ${fmtDuration(left)}. 화면을 켜 두세요.`);
+}
+
+function onData(s, dv) {
+  // packet = index of the first sample (uint32) + one or more 16-byte samples (firmware v0.6 packs up to 15)
+  const d = s.download;
+  if (!d || dv.byteLength < 20) return;
+  const first = dv.getUint32(0, true);
+  if (first === END_IDX) {   // asked past the end of the recording
+    d.expected = Math.min(d.expected, d.reqStart);
+    d.cursor = Math.min(d.cursor, d.expected);
+    requestChunk(s);
+    return;
+  }
+  const n = Math.floor((dv.byteLength - 4) / 16);
+  for (let j = 0; j < n; j++) {
+    const idx = first + j;
+    if (idx >= d.expected) break;
+    d.lastIdx = idx;
+    if (d.rows[idx]) continue;
+    const o = 4 + 16 * j;
+    const v = [dv.getUint32(o, true)];
+    for (let k = 0; k < 6; k++) v.push(dv.getInt16(o + 4 + 2 * k, true));
+    d.rows[idx] = v;
+    d.received++;
+    d.retries = 0;
+    if (d.received % 500 === 0) showProgress(s);
+  }
+  if (d.lastIdx >= d.chunkEnd - 1) requestChunk(s);   // chunk done: ask for the next one right away
+  else armTimer(s, IDLE_MS);                          // a packet may be lost; move on soon if the stream stops
 }
 
 function finishDownload(s) {
