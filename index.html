@@ -33,6 +33,7 @@
   --accent: #3cc28f; --accent-ink: #08130e; --rec: #ff6b5e; --warn: #e3b053; color-scheme: dark;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { margin: 0; }
 body {
   background: var(--bg); color: var(--ink); font: 15px/1.5 var(--font-body);
@@ -73,6 +74,17 @@ progress { width: 100%; height: 8px; accent-color: var(--accent); }
 .msg.err { color: var(--rec); }
 footer { color: var(--muted); font-size: 12px; text-align: center; }
 .confirm { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; }
+/* Live view: three readouts, then two scrolling 10 s graphs (acceleration, rotation) */
+:root { --x: #2a78d6; --y: #eb6834; --z: #1baf7a; --grid: #e6ebe8; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --x: #3987e5; --y: #d95926; --z: #199e70; --grid: #26302b; } }
+:root[data-theme="dark"] { --x: #3987e5; --y: #d95926; --z: #199e70; --grid: #26302b; }
+.live { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); padding-top: 10px; }
+.live .stats .v { font-size: 20px; }
+.live .label { text-transform: none; }
+.live canvas { width: 100%; height: 120px; display: block; }
+.legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); align-items: center; flex-wrap: wrap; }
+.legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+.live-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
 </style>
 </head>
 <body>
@@ -104,8 +116,9 @@ const SERVICE = "19b10010-e8f2-537e-4f6c-d104768a1214";
 const CMD     = "19b10011-e8f2-537e-4f6c-d104768a1214";
 const STATUS  = "19b10012-e8f2-537e-4f6c-d104768a1214";
 const DATA    = "19b10013-e8f2-537e-4f6c-d104768a1214";
+const LIVE    = "19b10014-e8f2-537e-4f6c-d104768a1214";
 const END_IDX = 0xFFFFFFFF;
-const APP_VERSION = "웹 앱 v0.7 · 2026-10-25";
+const APP_VERSION = "웹 앱 v0.9 · 2026-10-25";
 
 const sensors = new Map();   // device.id -> sensor object
 let sessionName = null;
@@ -156,6 +169,20 @@ function renderCard(s) {
         <button data-a="dl">내려받기</button>
         <button data-a="erase">지우기</button>
         <button data-a="conn">연결 끊기</button>
+        <button data-a="live">실시간 보기</button>
+      </div>
+      <div class="live" hidden>
+        <div class="live-head"><span class="label">실시간 · 50Hz</span><button data-a="zero">기준 맞추기</button></div>
+        <div class="stats">
+          <div class="stat"><span class="label">기울기</span><span class="v" data-k="tilt">–</span></div>
+          <div class="stat"><span class="label">가속도</span><span class="v" data-k="acc">–</span></div>
+          <div class="stat"><span class="label">회전</span><span class="v" data-k="rot">–</span></div>
+        </div>
+        <div class="legend"><span><i style="background:var(--x)"></i>x</span><span><i style="background:var(--y)"></i>y</span><span><i style="background:var(--z)"></i>z</span><span data-k="rate"></span></div>
+        <span class="label">가속도 (g) · 최근 10초</span>
+        <canvas data-c="acc"></canvas>
+        <span class="label">회전 (°/s) · 최근 10초</span>
+        <canvas data-c="gyro"></canvas>
       </div>
       <div class="confirm" hidden>센서의 기록을 모두 지울까요? 되돌릴 수 없어요.
         <button data-a="erase-yes">지우기</button><button data-a="erase-no">취소</button></div>
@@ -184,6 +211,9 @@ function renderCard(s) {
   q('[data-a="dl"]').disabled = !s.connected || !s.hasData || st === "REC" || !!s.download;
   q('[data-a="erase"]').disabled = !s.connected || st === "REC" || !!s.download;
   q('[data-a="conn"]').textContent = s.connected ? "연결 끊기" : "다시 연결";
+  q('[data-a="live"]').textContent = s.live ? "실시간 끄기" : "실시간 보기";
+  q('[data-a="live"]').disabled = !s.connected || !s.hasLive || !!s.download;
+  q(".live").hidden = !s.live;
   const msg = q(".msg");
   msg.textContent = s.msg || "";
   msg.classList.toggle("err", !!s.err);
@@ -234,6 +264,17 @@ async function connectSensor(s) {
     } catch (e) {
       s.hasData = false;   // old firmware without Bluetooth download
     }
+    try {
+      s.liveChar = await svc.getCharacteristic(LIVE);
+      s.onLive = s.onLive || (e => onLive(s, e.target.value));
+      s.liveChar.removeEventListener("characteristicvaluechanged", s.onLive);
+      s.liveChar.addEventListener("characteristicvaluechanged", s.onLive);
+      await s.liveChar.startNotifications();
+      s.hasLive = true;
+    } catch (e) {
+      s.hasLive = false;   // firmware older than v0.7
+    }
+    s.live = false;
     s.connected = true;
     setMsg(s, s.hasData ? "" : "센서 펌웨어가 예전 버전이라 내려받기를 쓸 수 없어요. 새 run_logger.ino를 올려 주세요.", !s.hasData);
   } catch (e) {
@@ -264,6 +305,7 @@ async function addSensor() {
     device.addEventListener("gattserverdisconnected", () => {
       const was = s.connected;
       s.connected = false;
+      s.live = false;
       if (s.download) { clearTimeout(s.download.timer); s.download = null; setMsg(s, "내려받는 중에 연결이 끊겼어요. 다시 연결해서 처음부터 받아 주세요.", true); }
       else if (was) setMsg(s, "연결이 끊겼어요. 센서가 켜져 있는지 확인하고 \"다시 연결\"을 누르세요.", true);
       else render();
@@ -287,6 +329,11 @@ async function onCardAction(s, a) {
     await sendCmd(s, "e");
   } else if (a === "dl") {
     startDownload(s);
+  } else if (a === "live") {
+    if (s.live) { s.live = false; await sendCmd(s, "l"); render(); }
+    else { startLive(s); await sendCmd(s, "L"); }
+  } else if (a === "zero") {
+    if (s.lv && s.lv.grav) { s.lv.ref = s.lv.grav.slice(); setMsg(s, "지금 자세를 기준(0°)으로 정했어요."); }
   }
 }
 
@@ -363,7 +410,7 @@ function showProgress(s) {
   const rate = d.received / Math.max(sec, 1);
   const left = rate > 0 ? (d.expected - d.received) / rate : 0;
   const pct = Math.floor(d.received / d.expected * 100);
-  setMsg(s, `내려받는 중 ${pct}% · 초당 ${Math.round(rate)}개 · 남은 시간 약 ${fmtDuration(left)}. 화면을 켜 두세요.`);
+  setMsg(s, `내려받는 중 ${pct}% · 초당 ${Math.round(rate)}개 · 패킷 ${d.maxPkt}바이트 · 남은 시간 약 ${fmtDuration(left)}. 화면을 켜 두세요.`);
 }
 
 function onData(s, dv) {
@@ -378,6 +425,7 @@ function onData(s, dv) {
     return;
   }
   const n = Math.floor((dv.byteLength - 4) / 16);
+  d.maxPkt = Math.max(d.maxPkt || 0, dv.byteLength);
   for (let j = 0; j < n; j++) {
     const idx = first + j;
     if (idx >= d.expected) break;
@@ -423,7 +471,96 @@ function finishDownload(s) {
   a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
   const miss = missing ? ` · 빠진 샘플 ${missing}개` : " · 빠진 샘플 없음";
-  setMsg(s, `${name} 저장 완료 (${count.toLocaleString("ko-KR")}개, 기록 ${rec}개${miss})`, missing > 0);
+  const secs = Math.round((Date.now() - d.t0) / 1000);
+  const pkt = d.maxPkt ? ` · 패킷 ${d.maxPkt}바이트(샘플 ${Math.floor((d.maxPkt - 4) / 16)}개)` : "";
+  setMsg(s, `${name} 저장 완료 (${count.toLocaleString("ko-KR")}개, 기록 ${rec}개${miss} · ${secs}초 걸림${pkt})`, missing > 0);
+}
+
+// ---------- live view ----------
+// Packet = time ms of the first sample (uint32) + up to 5 samples (ax ay az mg, gx gy gz 0.1 dps), 20 ms apart.
+
+const LIVE_N = 500;   // 10 s at 50Hz
+
+function startLive(s) {
+  s.live = true;
+  s.lv = { buf: [], grav: null, ref: null, count: 0, t0: Date.now(), rate: 0, peak: [] };
+  render();
+  requestAnimationFrame(drawLoop);
+}
+
+function onLive(s, dv) {
+  const L = s.lv;
+  if (!s.live || !L || dv.byteLength < 16) return;
+  const n = Math.floor((dv.byteLength - 4) / 12);
+  for (let j = 0; j < n; j++) {
+    const o = 4 + 12 * j;
+    const a = [0, 1, 2].map(k => dv.getInt16(o + 2 * k, true) / 1000);
+    const g = [3, 4, 5].map(k => dv.getInt16(o + 2 * k, true) / 10);
+    L.buf.push([...a, ...g]);
+    if (L.buf.length > LIVE_N) L.buf.shift();
+    // gravity direction = slowly smoothed acceleration (about 0.4 s)
+    L.grav = L.grav ? L.grav.map((v, k) => v * 0.95 + a[k] * 0.05) : a.slice();
+    L.count++;
+  }
+  const sec = (Date.now() - L.t0) / 1000;
+  if (sec > 2) { L.rate = L.count / sec; L.t0 = Date.now(); L.count = 0; }
+}
+
+function angleDeg(u, v) {
+  const dot = u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
+  const nu = Math.hypot(...u), nv = Math.hypot(...v);
+  if (!nu || !nv) return 0;
+  return Math.acos(Math.max(-1, Math.min(1, dot / (nu * nv)))) * 180 / Math.PI;
+}
+
+function drawLoop() {
+  let any = false;
+  for (const s of sensors.values()) {
+    if (!s.live || !s.lv || !s.el) continue;
+    any = true;
+    const L = s.lv, q = sel => s.el.querySelector(sel);
+    const last = L.buf[L.buf.length - 1];
+    if (last) {
+      // until "기준 맞추기" is pressed, tilt is measured from straight down (gravity on z only)
+      const ref = L.ref || [0, 0, 1];
+      q('[data-k="tilt"]').textContent = Math.round(angleDeg(L.grav, ref)) + "°";
+      const recent = L.buf.slice(-25);   // last 0.5 s
+      q('[data-k="acc"]').textContent = Math.max(...recent.map(r => Math.hypot(r[0], r[1], r[2]))).toFixed(1) + " g";
+      q('[data-k="rot"]').textContent = Math.round(Math.max(...recent.map(r => Math.hypot(r[3], r[4], r[5])))) + "°/s";
+      q('[data-k="rate"]').textContent = L.rate ? `수신 ${Math.round(L.rate)}Hz` : "";
+    }
+    drawGraph(q('[data-c="acc"]'), L.buf, 0, 2);
+    drawGraph(q('[data-c="gyro"]'), L.buf, 3, 250);
+  }
+  if (any) requestAnimationFrame(drawLoop);
+}
+
+// Draws three lines (x y z) from column `col`; the scale grows if values exceed `minRange`.
+function drawGraph(cv, buf, col, minRange) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth, h = cv.clientHeight;
+  if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+  const c = cv.getContext("2d");
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c.clearRect(0, 0, w, h);
+  const css = getComputedStyle(document.documentElement);
+  let range = minRange;
+  for (const r of buf) for (let k = 0; k < 3; k++) range = Math.max(range, Math.abs(r[col + k]));
+  const y = v => h / 2 - (v / range) * (h / 2 - 4);
+  c.strokeStyle = css.getPropertyValue("--grid"); c.lineWidth = 1;
+  c.beginPath(); c.moveTo(0, h / 2); c.lineTo(w, h / 2); c.stroke();
+  c.fillStyle = css.getPropertyValue("--muted"); c.font = "11px " + css.getPropertyValue("--font-data");
+  c.fillText("+" + (range >= 100 ? Math.round(range) : range.toFixed(1)), 2, 11);
+  c.fillText("−" + (range >= 100 ? Math.round(range) : range.toFixed(1)), 2, h - 3);
+  ["--x", "--y", "--z"].forEach((v, k) => {
+    c.strokeStyle = css.getPropertyValue(v); c.lineWidth = 2; c.lineJoin = "round";
+    c.beginPath();
+    buf.forEach((r, i) => {
+      const px = w - (buf.length - 1 - i) * (w / (LIVE_N - 1));
+      i ? c.lineTo(px, y(r[col + k])) : c.moveTo(px, y(r[col + k]));
+    });
+    c.stroke();
+  });
 }
 
 // ---------- session ----------
