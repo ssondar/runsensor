@@ -82,6 +82,10 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
 .live .stats .v { font-size: 20px; }
 .live .label { text-transform: none; }
 .live-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.signal { display: inline-flex; align-items: flex-end; gap: 8px; font-size: 12px; color: var(--muted); }
+.signal svg { display: block; }
+.signal .on { fill: var(--accent); }
+.signal .off { fill: var(--line); }
 .live canvas { width: 100%; height: 120px; display: block; }
 .legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); align-items: center; flex-wrap: wrap; }
 .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
@@ -129,7 +133,7 @@ const DATA    = "19b10013-e8f2-537e-4f6c-d104768a1214";
 const LIVE    = "19b10014-e8f2-537e-4f6c-d104768a1214";
 const END_IDX = 0xFFFFFFFF;
 const MARKER  = 0xFFFFFFFE;   // first sample of a recording: holds its start time
-const APP_VERSION = "웹 앱 v1.1 · 2026-10-25";
+const APP_VERSION = "웹 앱 v1.2 · 2026-10-25";
 
 const sensors = new Map();   // device.id -> sensor object
 let sessionName = null;
@@ -144,9 +148,10 @@ function stamp(d = new Date()) {
 function parseStatus(text) {
   // "IDLE 1388/131072 3.95V", "REC 2500/131072 3.90V", "DL 500/1388 3.90V", "ERASING"
   const fw = (text.match(/\b(v\d+\.\d+)\b/) || [])[1] || null;
+  const db = +((text.match(/(-\d+)dB/) || [])[1]) || null;   // Bluetooth signal, firmware v0.9+
   const m = text.match(/^(\w+)\s+(\d+)\/(\d+)(?:\s+([\d.]+)V)?/);
-  if (!m) return { state: text.trim().split(" ")[0], a: null, b: null, volts: null, fw };
-  return { state: m[1], a: +m[2], b: +m[3], volts: m[4] ? +m[4] : null, fw };
+  if (!m) return { state: text.trim().split(" ")[0], a: null, b: null, volts: null, fw, db };
+  return { state: m[1], a: +m[2], b: +m[3], volts: m[4] ? +m[4] : null, fw, db };
 }
 
 function stateLabel(st) {
@@ -183,7 +188,7 @@ function renderCard(s) {
         <button data-a="live">실시간 보기</button>
       </div>
       <div class="live" hidden>
-        <div class="live-head"><span class="label">실시간 · 50Hz</span><button data-a="zero">기준 맞추기</button></div>
+        <div class="live-head"><span class="signal" data-k="sig" role="img"></span><button data-a="zero">기준 맞추기</button></div>
         <div class="stats live-stats">
           <div class="stat"><span class="label">케이던스</span><span class="v" data-k="cad">–</span></div>
           <div class="stat"><span class="label">기울기</span><span class="v" data-k="tilt">–</span></div>
@@ -226,9 +231,27 @@ function renderCard(s) {
   q('[data-a="live"]').textContent = s.live ? "실시간 끄기" : "실시간 보기";
   q('[data-a="live"]').disabled = !s.connected || !s.hasLive || !!s.download;
   q(".live").hidden = !s.live;
+  renderSignal(q('[data-k="sig"]'), s.status.db);
   const msg = q(".msg");
   msg.textContent = s.msg || "";
   msg.classList.toggle("err", !!s.err);
+}
+
+// 5 bars from the signal strength the sensor measures: -60 dBm or better = 5 bars, each 10 dB weaker = one bar less
+function signalBars(db) {
+  if (db == null) return 0;
+  return Math.max(1, Math.min(5, Math.floor((db + 100) / 10) + 1));
+}
+
+function renderSignal(el, db) {
+  const n = signalBars(db);
+  if (el.dataset.n === String(n) + db) return;
+  el.dataset.n = String(n) + db;
+  const bars = [0, 1, 2, 3, 4].map(i =>
+    `<rect class="${i < n ? "on" : "off"}" x="${i * 6}" y="${14 - (i + 1) * 2.8}" width="4" height="${(i + 1) * 2.8}" rx="1"/>`).join("");
+  el.innerHTML = `<svg width="28" height="14" viewBox="0 0 28 14" aria-hidden="true">${bars}</svg>` +
+    `<span>${db == null ? "블루투스 감도 –" : `블루투스 ${n}/5 · ${db}dBm`}</span>`;
+  el.setAttribute("aria-label", db == null ? "블루투스 감도 알 수 없음" : `블루투스 감도 5칸 중 ${n}칸`);
 }
 
 function fmtDuration(sec) {
