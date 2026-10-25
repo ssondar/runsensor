@@ -129,7 +129,7 @@ const DATA    = "19b10013-e8f2-537e-4f6c-d104768a1214";
 const LIVE    = "19b10014-e8f2-537e-4f6c-d104768a1214";
 const END_IDX = 0xFFFFFFFF;
 const MARKER  = 0xFFFFFFFE;   // first sample of a recording: holds its start time
-const APP_VERSION = "웹 앱 v1.0 · 2026-10-25";
+const APP_VERSION = "웹 앱 v1.1 · 2026-10-25";
 
 const sensors = new Map();   // device.id -> sensor object
 let sessionName = null;
@@ -663,7 +663,10 @@ function cadence(c, mult) {
   const med = s[Math.floor(s.length / 2)];
   const steady = s.filter(x => Math.abs(x - med) < 0.25 * med).length;
   if (steady < 0.6 * s.length || 60 / med < 70) return null;   // not a steady walk or run
-  return 60 / med * mult;
+  // average of the steady intervals: each step time is off by up to one sample (20 ms), but over
+  // 10 steps that error is spread out, so the result is good to about 1%
+  const ok = s.filter(x => Math.abs(x - med) < 0.25 * med);
+  return 60 / (ok.reduce((a, b) => a + b, 0) / ok.length) * mult;
 }
 // ---------- GPS ----------
 // The phone's location gives speed, pace and distance. While recording, points are saved as <session>_GPS.csv.
