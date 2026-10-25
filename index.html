@@ -81,6 +81,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
 .live { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); padding-top: 10px; }
 .live .stats .v { font-size: 20px; }
 .live .label { text-transform: none; }
+.live-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .live canvas { width: 100%; height: 120px; display: block; }
 .legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); align-items: center; flex-wrap: wrap; }
 .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
@@ -102,6 +103,15 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
     <div class="row">
       <button id="btnAdd" style="flex:1">+ 센서 연결</button>
     </div>
+    <div class="row">
+      <button id="btnGps" style="flex:1">GPS 켜기</button>
+    </div>
+    <div id="gpsBox" class="stats" hidden>
+      <div class="stat"><span class="label">속도</span><span class="v" id="gpsSpeed">–</span></div>
+      <div class="stat"><span class="label">페이스</span><span class="v" id="gpsPace">–</span></div>
+      <div class="stat"><span class="label">거리</span><span class="v" id="gpsDist">–</span></div>
+    </div>
+    <div id="gpsInfo" class="msg" hidden></div>
     <div id="sessionInfo" class="msg">연결된 센서가 없어요.</div>
   </section>
 
@@ -118,7 +128,8 @@ const STATUS  = "19b10012-e8f2-537e-4f6c-d104768a1214";
 const DATA    = "19b10013-e8f2-537e-4f6c-d104768a1214";
 const LIVE    = "19b10014-e8f2-537e-4f6c-d104768a1214";
 const END_IDX = 0xFFFFFFFF;
-const APP_VERSION = "웹 앱 v0.9 · 2026-10-25";
+const MARKER  = 0xFFFFFFFE;   // first sample of a recording: holds its start time
+const APP_VERSION = "웹 앱 v1.0 · 2026-10-25";
 
 const sensors = new Map();   // device.id -> sensor object
 let sessionName = null;
@@ -173,7 +184,8 @@ function renderCard(s) {
       </div>
       <div class="live" hidden>
         <div class="live-head"><span class="label">실시간 · 50Hz</span><button data-a="zero">기준 맞추기</button></div>
-        <div class="stats">
+        <div class="stats live-stats">
+          <div class="stat"><span class="label">케이던스</span><span class="v" data-k="cad">–</span></div>
           <div class="stat"><span class="label">기울기</span><span class="v" data-k="tilt">–</span></div>
           <div class="stat"><span class="label">가속도</span><span class="v" data-k="acc">–</span></div>
           <div class="stat"><span class="label">회전</span><span class="v" data-k="rot">–</span></div>
@@ -432,8 +444,13 @@ function onData(s, dv) {
     d.lastIdx = idx;
     if (d.rows[idx]) continue;
     const o = 4 + 16 * j;
-    const v = [dv.getUint32(o, true)];
-    for (let k = 0; k < 6; k++) v.push(dv.getInt16(o + 4 + 2 * k, true));
+    const t = dv.getUint32(o, true);
+    let v;
+    if (t === MARKER) v = { start: dv.getUint32(o + 4, true) };   // a new recording begins here
+    else {
+      v = [t];
+      for (let k = 0; k < 6; k++) v.push(dv.getInt16(o + 4 + 2 * k, true));
+    }
     d.rows[idx] = v;
     d.received++;
     d.retries = 0;
@@ -443,37 +460,55 @@ function onData(s, dv) {
   else armTimer(s, IDLE_MS);                          // a packet may be lost; move on soon if the stream stops
 }
 
+// Each recording becomes its own file: <start time>_<sensor>.csv, e.g. 20261025_150349_L.csv
+// Firmware v0.8+ stores the start time; older recordings are named by the download time + a number.
 function finishDownload(s) {
   const d = s.download;
   clearTimeout(d.timer);
   s.download = null;
-  // each recording starts at t = 0, so a smaller t means a new recording
-  let rec = 1, lastT = -1, missing = 0, count = 0;
-  const lines = ["rec,t_ms,ax_mg,ay_mg,az_mg,gx_01dps,gy_01dps,gz_01dps"];
+  const recs = [];
+  let cur = null, lastT = -1, missing = 0, count = 0;
   for (let i = 0; i < d.expected; i++) {
     const r = d.rows[i];
     if (!r) { missing++; continue; }
-    if (r[0] < lastT) rec++;
+    if (!Array.isArray(r)) { cur = { start: r.start, rows: [] }; recs.push(cur); lastT = -1; continue; }
+    if (!cur || r[0] < lastT) { cur = { start: 0, rows: [] }; recs.push(cur); }   // old firmware: t restarts at 0
     lastT = r[0];
-    lines.push(rec + "," + r.join(","));
+    cur.rows.push(r);
     count++;
   }
+  const full = recs.filter(r => r.rows.length > 0);
   if (count === 0) {
     setMsg(s, "센서에서 데이터가 오지 않았어요. \"연결 끊기\" → \"다시 연결\" 후 다시 내려받아 보세요.", true);
     return;
   }
-  const name = `${(s.device.name || "RunSensor")}_${sessionName || stamp()}.csv`;
-  const blob = new Blob([lines.join("\n") + "\n"], { type: "text/csv" });
+  const dlStamp = stamp();
+  const names = full.map((r, i) => {
+    const when = r.start ? stamp(new Date(r.start * 1000)) : `${dlStamp}_rec${i + 1}`;
+    const name = `${when}_${sensorTag(s)}.csv`;
+    const lines = ["t_ms,ax_mg,ay_mg,az_mg,gx_01dps,gy_01dps,gz_01dps", ...r.rows.map(x => x.join(","))];
+    setTimeout(() => saveFile(name, lines.join("\n") + "\n", "text/csv"), i * 600);
+    return name;
+  });
+  const miss = missing ? ` · 빠진 샘플 ${missing}개` : " · 빠진 샘플 없음";
+  const secs = Math.round((Date.now() - d.t0) / 1000);
+  const pkt = d.maxPkt ? ` · 패킷 ${d.maxPkt}바이트` : "";
+  const what = names.length === 1 ? names[0] : `파일 ${names.length}개 (${names.join(", ")})`;
+  setMsg(s, `${what} 저장 완료 · ${count.toLocaleString("ko-KR")}개${miss} · ${secs}초 걸림${pkt}`, missing > 0);
+}
+
+// "RunSensor-L" -> "L"
+function sensorTag(s) {
+  return (s.device.name || "RunSensor").replace(/^RunSensor-?/, "") || "S";
+}
+
+function saveFile(name, text, type) {
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
+  a.href = URL.createObjectURL(new Blob([text], { type }));
   a.download = name;
   document.body.appendChild(a);
   a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
-  const miss = missing ? ` · 빠진 샘플 ${missing}개` : " · 빠진 샘플 없음";
-  const secs = Math.round((Date.now() - d.t0) / 1000);
-  const pkt = d.maxPkt ? ` · 패킷 ${d.maxPkt}바이트(샘플 ${Math.floor((d.maxPkt - 4) / 16)}개)` : "";
-  setMsg(s, `${name} 저장 완료 (${count.toLocaleString("ko-KR")}개, 기록 ${rec}개${miss} · ${secs}초 걸림${pkt})`, missing > 0);
 }
 
 // ---------- live view ----------
@@ -483,7 +518,8 @@ const LIVE_N = 500;   // 10 s at 50Hz
 
 function startLive(s) {
   s.live = true;
-  s.lv = { buf: [], grav: null, ref: null, count: 0, t0: Date.now(), rate: 0, peak: [] };
+  s.lv = { buf: [], grav: null, ref: null, count: 0, t0: Date.now(), rate: 0, steps: makeStepDetector() };
+  keepScreenOn();
   render();
   requestAnimationFrame(drawLoop);
 }
@@ -500,6 +536,7 @@ function onLive(s, dv) {
     if (L.buf.length > LIVE_N) L.buf.shift();
     // gravity direction = slowly smoothed acceleration (about 0.4 s)
     L.grav = L.grav ? L.grav.map((v, k) => v * 0.95 + a[k] * 0.05) : a.slice();
+    stepUpdate(L.steps, Math.hypot(a[0], a[1], a[2]));
     L.count++;
   }
   const sec = (Date.now() - L.t0) / 1000;
@@ -527,6 +564,9 @@ function drawLoop() {
       const recent = L.buf.slice(-25);   // last 0.5 s
       q('[data-k="acc"]').textContent = Math.max(...recent.map(r => Math.hypot(r[0], r[1], r[2]))).toFixed(1) + " g";
       q('[data-k="rot"]').textContent = Math.round(Math.max(...recent.map(r => Math.hypot(r[3], r[4], r[5])))) + "°/s";
+      // a foot sensor (L or R) sees every second step
+      const cad = cadence(L.steps, /^[LR]$/.test(sensorTag(s)) ? 2 : 1);
+      q('[data-k="cad"]').textContent = cad ? Math.round(cad) + " 걸음/분" : "–";
       q('[data-k="rate"]').textContent = L.rate ? `수신 ${Math.round(L.rate)}Hz` : "";
     }
     drawGraph(q('[data-c="acc"]'), L.buf, 0, 2);
@@ -566,14 +606,138 @@ function drawGraph(cv, buf, col, minRange) {
 // ---------- session ----------
 
 $("btnAdd").addEventListener("click", addSensor);
+let sessionStartMs = 0, sessionRecording = false;
+
+function fwNum(s) { return parseFloat((s.status.fw || "v0").slice(1)) || 0; }
+
 $("btnStart").addEventListener("click", async () => {
-  sessionName = stamp();
-  for (const s of sensors.values()) await sendCmd(s, "r");
+  sessionStartMs = Date.now();
+  sessionName = stamp(new Date(sessionStartMs));
+  sessionRecording = true;
+  gps.points = []; gps.dist = 0; gps.prev = null;
+  const buf = new Uint8Array(5);
+  buf[0] = 82;   // 'R' + start time, so the file can be named after it (firmware v0.8+)
+  new DataView(buf.buffer).setUint32(1, Math.floor(sessionStartMs / 1000), true);
+  for (const s of sensors.values()) {
+    if (!s.connected) continue;
+    if (fwNum(s) >= 0.8) {
+      try { await s.cmd.writeValue(buf); } catch (e) { setMsg(s, "명령을 보내지 못했어요. 다시 눌러 보세요.", true); }
+    } else await sendCmd(s, "r");
+  }
+  keepScreenOn();
   render();
 });
 $("btnStop").addEventListener("click", async () => {
   for (const s of sensors.values()) await sendCmd(s, "s");
+  if (sessionRecording && gps.points.length) saveGpsFile();
+  sessionRecording = false;
   render();
+});
+
+// ---------- cadence ----------
+// Steps = peaks in total acceleration, at least 0.27 s apart; cadence = median of the last 10 step intervals.
+
+function makeStepDetector() {
+  return { mags: [], n: 0, lastStep: -1e9, intervals: [] };
+}
+function stepUpdate(c, mag) {
+  c.mags.push(mag); if (c.mags.length > 150) c.mags.shift();
+  c.n++;
+  const m = c.mags, k = m.length;
+  if (k < 50) return;
+  const mean = m.reduce((a, b) => a + b, 0) / k;
+  const sd = Math.sqrt(m.reduce((a, b) => a + (b - mean) ** 2, 0) / k);
+  const thr = Math.max(1.08, mean + 0.8 * sd, mean + 0.12);
+  const p = m[k - 2];
+  const t = (c.n - 2) * 0.02;
+  if (p > m[k - 3] && p >= m[k - 1] && p > thr && t - c.lastStep > 0.27) {
+    if (t - c.lastStep < 2) { c.intervals.push(t - c.lastStep); if (c.intervals.length > 10) c.intervals.shift(); }
+    else c.intervals = [];
+    c.lastStep = t;
+  }
+}
+function cadence(c, mult) {
+  const t = (c.n - 1) * 0.02;
+  if (t - c.lastStep > 2 || c.intervals.length < 4) return null;
+  const s = [...c.intervals].sort((a, b) => a - b);
+  const med = s[Math.floor(s.length / 2)];
+  const steady = s.filter(x => Math.abs(x - med) < 0.25 * med).length;
+  if (steady < 0.6 * s.length || 60 / med < 70) return null;   // not a steady walk or run
+  return 60 / med * mult;
+}
+// ---------- GPS ----------
+// The phone's location gives speed, pace and distance. While recording, points are saved as <session>_GPS.csv.
+
+const gps = { watch: null, points: [], dist: 0, prev: null, speeds: [] };
+
+function haversine(a, b) {
+  const R = 6371000, rad = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * rad, dLon = (b.lon - a.lon) * rad;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+function onPosition(pos) {
+  const c = pos.coords, p = { t: pos.timestamp, lat: c.latitude, lon: c.longitude, acc: c.accuracy };
+  let speed = c.speed;
+  if (gps.prev && c.accuracy < 30) {
+    const d = haversine(gps.prev, p), dt = (p.t - gps.prev.t) / 1000;
+    if (speed == null && dt > 0) speed = d / dt;
+    if (sessionRecording) gps.dist += d;
+  }
+  if (c.accuracy < 30 || !gps.prev) gps.prev = p;
+  gps.speeds.push({ t: p.t, v: speed || 0 });
+  while (gps.speeds.length && p.t - gps.speeds[0].t > 5000) gps.speeds.shift();   // average over 5 s
+  const v = gps.speeds.reduce((a, b) => a + b.v, 0) / gps.speeds.length;
+  if (sessionRecording) gps.points.push({ ...p, speed: speed == null ? "" : speed.toFixed(2) });
+  $("gpsSpeed").textContent = (v * 3.6).toFixed(1) + " km/h";
+  $("gpsPace").textContent = v > 0.5 ? fmtPace(1000 / v) : "–";
+  $("gpsDist").textContent = (gps.dist / 1000).toFixed(2) + " km";
+  $("gpsInfo").textContent = `GPS 정확도 ±${Math.round(c.accuracy)}m` + (c.accuracy > 30 ? " · 하늘이 보이는 곳으로 가면 더 정확해져요." : "");
+}
+
+function fmtPace(secPerKm) {
+  const m = Math.floor(secPerKm / 60), s = Math.round(secPerKm % 60);
+  return `${m}'${String(s).padStart(2, "0")}"/km`;
+}
+
+function saveGpsFile() {
+  const lines = ["t_ms,unix_ms,lat,lon,accuracy_m,speed_mps",
+    ...gps.points.map(p => [p.t - sessionStartMs, p.t, p.lat.toFixed(7), p.lon.toFixed(7), Math.round(p.acc), p.speed].join(","))];
+  saveFile(`${sessionName}_GPS.csv`, lines.join("\n") + "\n", "text/csv");
+}
+
+$("btnGps").addEventListener("click", () => {
+  if (gps.watch != null) {
+    navigator.geolocation.clearWatch(gps.watch);
+    gps.watch = null;
+    $("btnGps").textContent = "GPS 켜기";
+    $("gpsBox").hidden = $("gpsInfo").hidden = true;
+    return;
+  }
+  $("gpsInfo").hidden = false;
+  if (!navigator.geolocation) { $("gpsInfo").textContent = "이 브라우저는 위치를 쓸 수 없어요."; return; }
+  $("gpsBox").hidden = false;
+  $("gpsInfo").textContent = "위치를 찾는 중... 처음에는 몇십 초 걸릴 수 있어요.";
+  $("btnGps").textContent = "GPS 끄기";
+  gps.watch = navigator.geolocation.watchPosition(onPosition,
+    e => { $("gpsInfo").textContent = "위치를 가져오지 못했어요: " + (e.code === 1 ? "위치 권한을 허용해 주세요." : e.message); },
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
+  keepScreenOn();
+});
+
+// Keep the screen on while recording, live view or GPS is in use (Chrome pauses the page when it turns off).
+let wakeLock = null;
+async function keepScreenOn() {
+  try {
+    if (!wakeLock && navigator.wakeLock) {
+      wakeLock = await navigator.wakeLock.request("screen");
+      wakeLock.addEventListener("release", () => { wakeLock = null; });
+    }
+  } catch (e) {}
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && (sessionRecording || gps.watch != null || [...sensors.values()].some(s => s.live))) keepScreenOn();
 });
 
 $("version").textContent = APP_VERSION;
