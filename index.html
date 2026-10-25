@@ -105,7 +105,7 @@ const CMD     = "19b10011-e8f2-537e-4f6c-d104768a1214";
 const STATUS  = "19b10012-e8f2-537e-4f6c-d104768a1214";
 const DATA    = "19b10013-e8f2-537e-4f6c-d104768a1214";
 const END_IDX = 0xFFFFFFFF;
-const APP_VERSION = "웹 앱 v0.4 · 2026-10-25";
+const APP_VERSION = "웹 앱 v0.5 · 2026-10-25";
 
 const sensors = new Map();   // device.id -> sensor object
 let sessionName = null;
@@ -216,25 +216,24 @@ async function connectSensor(s) {
     s.cmd = await svc.getCharacteristic(CMD);
     step = "상태 특성";
     s.statusChar = await svc.getCharacteristic(STATUS);
-    if (!s.statusHooked) {
-      s.statusChar.addEventListener("characteristicvaluechanged", e => {
-        s.status = parseStatus(new TextDecoder().decode(e.target.value));
-        render();
-      });
-    }
+    // after a reconnect the browser hands out new characteristic objects, so hook them up every time
+    s.onStatus = s.onStatus || (e => { s.status = parseStatus(new TextDecoder().decode(e.target.value)); render(); });
+    s.statusChar.removeEventListener("characteristicvaluechanged", s.onStatus);
+    s.statusChar.addEventListener("characteristicvaluechanged", s.onStatus);
     step = "상태 알림 켜기";
     await s.statusChar.startNotifications();
     s.status = parseStatus(new TextDecoder().decode(await s.statusChar.readValue()));
     step = "데이터 특성";
     try {
       s.data = await svc.getCharacteristic(DATA);
-      if (!s.statusHooked) s.data.addEventListener("characteristicvaluechanged", e => onData(s, e.target.value));
+      s.onData = s.onData || (e => onData(s, e.target.value));
+      s.data.removeEventListener("characteristicvaluechanged", s.onData);
+      s.data.addEventListener("characteristicvaluechanged", s.onData);
       await s.data.startNotifications();
       s.hasData = true;
     } catch (e) {
       s.hasData = false;   // old firmware without Bluetooth download
     }
-    s.statusHooked = true;
     s.connected = true;
     setMsg(s, s.hasData ? "" : "센서 펌웨어가 예전 버전이라 내려받기를 쓸 수 없어요. 새 run_logger.ino를 올려 주세요.", !s.hasData);
   } catch (e) {
@@ -368,6 +367,10 @@ function finishDownload(s) {
     lastT = r[0];
     lines.push(rec + "," + r.join(","));
     count++;
+  }
+  if (count === 0) {
+    setMsg(s, "센서에서 데이터가 오지 않았어요. \"연결 끊기\" → \"다시 연결\" 후 다시 내려받아 보세요.", true);
+    return;
   }
   const name = `${(s.device.name || "RunSensor")}_${sessionName || stamp()}.csv`;
   const blob = new Blob([lines.join("\n") + "\n"], { type: "text/csv" });
