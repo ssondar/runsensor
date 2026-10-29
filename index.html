@@ -106,6 +106,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
     </div>
     <div class="row">
       <button id="btnAdd" style="flex:1">+ 센서 연결</button>
+      <button id="btnDlAll" style="flex:1" disabled>모두 내려받기</button>
     </div>
     <div class="row">
       <button id="btnGps" style="flex:1">GPS 켜기</button>
@@ -133,7 +134,7 @@ const DATA    = "19b10013-e8f2-537e-4f6c-d104768a1214";
 const LIVE    = "19b10014-e8f2-537e-4f6c-d104768a1214";
 const END_IDX = 0xFFFFFFFF;
 const MARKER  = 0xFFFFFFFE;   // first sample of a recording: holds its start time
-const APP_VERSION = "웹 앱 v1.2 · 2026-10-25";
+const APP_VERSION = "웹 앱 v1.3 · 2026-10-29";
 
 const sensors = new Map();   // device.id -> sensor object
 let sessionName = null;
@@ -164,8 +165,9 @@ function render() {
   const connected = list.filter(s => s.connected);
   $("btnStart").disabled = connected.length === 0;
   $("btnStop").disabled = connected.length === 0;
+  $("btnDlAll").disabled = dlAllRunning || !connected.some(canDownload);
   $("sessionInfo").textContent = list.length === 0 ? "연결된 센서가 없어요."
-    : `연결 ${connected.length}/${list.length}개` + (sessionName ? ` · 세션 ${sessionName}` : "");
+    : `연결 ${connected.length}/${list.length}개` + (sessionName ? ` · 세션 ${sessionName}` : "") + (dlAllNote ? ` · ${dlAllNote}` : "");
   for (const s of list) renderCard(s);
 }
 
@@ -341,7 +343,7 @@ async function addSensor() {
       const was = s.connected;
       s.connected = false;
       s.live = false;
-      if (s.download) { clearTimeout(s.download.timer); s.download = null; setMsg(s, "내려받는 중에 연결이 끊겼어요. 다시 연결해서 처음부터 받아 주세요.", true); }
+      if (s.download) { clearTimeout(s.download.timer); s.download = null; downloadEnded(s); setMsg(s, "내려받는 중에 연결이 끊겼어요. 다시 연결해서 처음부터 받아 주세요.", true); }
       else if (was) setMsg(s, "연결이 끊겼어요. 센서가 켜져 있는지 확인하고 \"다시 연결\"을 누르세요.", true);
       else render();
     });
@@ -383,13 +385,43 @@ const FIRST_PACKET_MS = 1500;   // wait this long for the first packet after a r
 const IDLE_MS = 300;            // then this long after the last packet before moving on
 const MAX_RETRIES = 15;
 
-async function startDownload(s) {
+// Resolves when this sensor's download ends (saved, failed or disconnected), so "모두 내려받기" can go one by one.
+function startDownload(s) {
   const expected = s.status.a || 0;
-  if (expected === 0) { setMsg(s, "저장된 기록이 없어요."); return; }
+  if (expected === 0) { setMsg(s, "저장된 기록이 없어요."); return Promise.resolve(); }
+  const done = new Promise(res => { s.dlResolve = res; });
   s.download = { expected, received: 0, rows: new Array(expected), cursor: 0, next: 0, chunkEnd: 0,
                  lastIdx: -1, retries: 0, timer: null, t0: Date.now() };
   setMsg(s, "내려받는 중... 화면을 켜 두세요.");
   requestChunk(s);
+  return done;
+}
+
+function downloadEnded(s) {
+  const res = s.dlResolve;
+  s.dlResolve = null;
+  if (res) res();
+}
+
+function canDownload(s) {
+  return s.connected && s.hasData && s.status.state !== "REC" && !s.download && (s.status.a || 0) > 0;
+}
+
+// Download every connected sensor one after another (several at once would share the radio and slow each other down).
+let dlAllRunning = false, dlAllNote = "";
+async function downloadAll() {
+  dlAllRunning = true;
+  render();
+  const list = [...sensors.values()].filter(canDownload);
+  for (let i = 0; i < list.length; i++) {
+    dlAllNote = `모두 내려받기 ${i + 1}/${list.length} (${sensorTag(list[i])})`;
+    render();
+    if (canDownload(list[i])) await startDownload(list[i]);
+    await new Promise(r => setTimeout(r, 1500));   // let the file saves finish before the next sensor
+  }
+  dlAllRunning = false;
+  dlAllNote = list.length ? `센서 ${list.length}개 내려받기 끝` : "";
+  render();
 }
 
 function armTimer(s, ms) {
@@ -489,6 +521,7 @@ function finishDownload(s) {
   const d = s.download;
   clearTimeout(d.timer);
   s.download = null;
+  downloadEnded(s);
   const recs = [];
   let cur = null, lastT = -1, missing = 0, count = 0;
   for (let i = 0; i < d.expected; i++) {
@@ -629,6 +662,7 @@ function drawGraph(cv, buf, col, minRange) {
 // ---------- session ----------
 
 $("btnAdd").addEventListener("click", addSensor);
+$("btnDlAll").addEventListener("click", downloadAll);
 let sessionStartMs = 0, sessionRecording = false;
 
 function fwNum(s) { return parseFloat((s.status.fw || "v0").slice(1)) || 0; }
