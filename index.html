@@ -90,20 +90,45 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
 .legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); align-items: center; flex-wrap: wrap; }
 .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
 .live-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
-/* All sensors at a glance: one tile per sensor, then one graph with a line per sensor */
+/* All sensors at once: one full live panel per sensor, P B on top and L R below (2x2 on a wide screen) */
 :root { --sL: #2a78d6; --sR: #eb6834; --sP: #1baf7a; --sB: #8a5cd6; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --sL: #3987e5; --sR: #d95926; --sP: #199e70; --sB: #9a72e8; } }
 :root[data-theme="dark"] { --sL: #3987e5; --sR: #d95926; --sP: #199e70; --sB: #9a72e8; }
-.overview { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+body.wide main { max-width: 1200px; }
+.overview { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
 .overview h2 { font-size: 16px; margin: 0; }
-.tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.tile { border: 1px solid var(--line); border-left: 4px solid var(--c, var(--line)); border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.tile-head { display: flex; justify-content: space-between; align-items: center; gap: 6px; font-weight: 600; }
-.tile .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 8px; }
+.tiles { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+@media (min-width: 760px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.tile { border: 1px solid var(--line); border-top: 4px solid var(--c, var(--line)); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.tile-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tile-name { font-weight: 600; font-size: 16px; }
+.tile .stats { grid-template-columns: repeat(auto-fit, minmax(84px, 1fr)); gap: 4px 8px; }
 .overview .label { text-transform: none; }
-.tile .label { font-size: 11px; }
-.tile .stat .v { font-size: 15px; }
-.overview canvas { width: 100%; height: 140px; display: block; }
+.tile .stat .v { font-size: 18px; }
+.tile canvas { width: 100%; height: 110px; display: block; }
+/* Posture from behind: body drawn from B/P angles and L/R feet, alerts and numbers beside it */
+.posture { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px 16px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+@media (min-width: 760px) { .posture { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+.posture canvas { width: 100%; height: 520px; display: block; }
+@media (max-width: 759px) { .posture canvas { height: 640px; } }
+.posture-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.posture-head label { font-size: 13px; color: var(--muted); }
+.posture-head input { width: 4.5em; font: inherit; background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 2px 6px; }
+.pbox { border: 1px solid var(--line); border-top: 4px solid var(--c, var(--line)); border-radius: 10px; padding: 8px 12px; margin-bottom: 10px; }
+.pbox h3 { margin: 0 0 6px; font-size: 14px; }
+.pbox li { margin: 2px 0; font-size: 14px; }
+.pbox .bad { color: var(--rec); } .pbox .warn { color: var(--warn); } .pbox .ok { color: var(--accent); }
+.pcols { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 0 10px; }
+.prow { display: grid; grid-template-columns: 6.5em 1fr 5em; gap: 8px; align-items: center; font-size: 13px; margin: 3px 0; }
+.pbar { height: 8px; background: var(--grid); border-radius: 4px; position: relative; }
+.pbar i { position: absolute; top: 0; bottom: 0; border-radius: 4px; opacity: .5; }
+.pbar b { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--ink); }
+.pbar u { position: absolute; top: -2px; bottom: -2px; width: 1px; left: 50%; background: var(--muted); }
+.pv { font-family: var(--font-data); text-align: right; font-variant-numeric: tabular-nums; }
+.pv small { color: var(--muted); }
+.pfeet { display: grid; grid-template-columns: 8.5em 1fr 1fr; gap: 3px 8px; font-size: 13px; }
+.pfeet span:nth-child(3n+2), .pfeet span:nth-child(3n) { font-family: var(--font-data); }
+.pfeet .bad { color: var(--rec); font-weight: 600; }
 </style>
 </head>
 <body>
@@ -136,11 +161,26 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
   </section>
 
   <section id="overview" class="overview" aria-label="모든 센서 실시간" hidden>
-    <div class="live-head"><h2>모든 센서 실시간</h2><button id="btnZeroAll">모두 기준 맞추기</button></div>
+    <div class="live-head"><h2>모든 센서 실시간</h2><button id="btnCal">자세 기준 잡기 (10초)</button></div>
+    <div id="calMsg" class="msg">센서를 모두 몸에 단 뒤 "자세 기준 잡기"를 누르고 화면 안내를 따라 주세요.</div>
+    <div class="posture">
+      <div>
+        <div class="posture-head"><h3 style="margin:0;font-size:15px">뒤에서 본 내 자세</h3><label>키 <input id="height" type="number" value="170" min="120" max="220" inputmode="numeric"> cm</label></div>
+        <canvas id="postureCv" role="img" aria-label="뒤에서 본 자세 그림: 상체, 골반, 양발의 기울기"></canvas>
+        <div class="legend"><span><i style="background:var(--sB)"></i>B 상체</span><span><i style="background:var(--sP)"></i>P 골반</span><span><i style="background:var(--sL)"></i>L 왼발</span><span><i style="background:var(--sR)"></i>R 오른발</span><span><i style="background:var(--rec)"></i>틀어진 곳</span></div>
+      </div>
+      <div>
+        <div class="pbox"><h3>지금 자세 알림</h3><ul id="postureFb" style="margin:0;padding-left:1.2em"></ul></div>
+        <div class="pcols">
+          <div class="pbox" style="--c:var(--sB)"><h3>B · 상체</h3><div id="pgB"></div></div>
+          <div class="pbox" style="--c:var(--sP)"><h3>P · 골반</h3><div id="pgP"></div></div>
+          <div class="pbox" style="--c:var(--muted)"><h3>허리 (상체 − 골반)</h3><div id="pgD"></div></div>
+          <div class="pbox" style="--c:var(--sL)"><h3>L · R 발 (최근 걸음 평균)</h3><div class="pfeet" id="pFeet"></div></div>
+        </div>
+        <div class="legend"><span><i style="background:var(--x)"></i>앞뒤</span><span><i style="background:var(--y)"></i>좌우</span><span><i style="background:var(--z)"></i>비틀림</span><span>흰 선 = 지금, 색 = 한 걸음 동안 움직인 폭</span><span>내번 = 발이 바깥으로 기울기, 외번 = 안쪽으로 무너짐</span></div>
+      </div>
+    </div>
     <div id="tiles" class="tiles"></div>
-    <div class="legend" id="ovLegend"></div>
-    <span class="label">가속도 크기 (g) · 최근 10초 · 1g = 가만히 있을 때</span>
-    <canvas id="ovGraph"></canvas>
   </section>
 
   <section id="cards" class="cards" aria-label="센서 목록">
@@ -157,7 +197,7 @@ const DATA    = "19b10013-e8f2-537e-4f6c-d104768a1214";
 const LIVE    = "19b10014-e8f2-537e-4f6c-d104768a1214";
 const END_IDX = 0xFFFFFFFF;
 const MARKER  = 0xFFFFFFFE;   // first sample of a recording: holds its start time
-const APP_VERSION = "웹 앱 v1.5 · 2026-10-30";
+const APP_VERSION = "웹 앱 v1.7 · 2026-10-30";
 
 const sensors = new Map();   // device.id -> sensor object
 let sessionName = null;
@@ -585,7 +625,7 @@ function finishDownload(s) {
 // "RunSensor-L" -> "L"
 // Firmware v1.0+ tells its own name in the status; older firmware: the name the browser saw (may be an old cached one)
 function sensorName(s) {
-  if (s.status.tag) s.tag = s.status.tag;
+  if (s.status.tag) s.tag = s.status.tag.toUpperCase();   // "p" typed by mistake still counts as P
   return s.tag ? "RunSensor-" + s.tag : (s.device.name || "RunSensor");
 }
 
@@ -610,7 +650,7 @@ const LIVE_N = 500;   // 10 s at 50Hz
 function startLive(s, detail) {
   s.live = true;
   s.detail = !!detail;
-  s.lv = { buf: [], grav: null, ref: null, count: 0, t0: Date.now(), rate: 0, steps: makeStepDetector() };
+  s.lv = { buf: [], grav: null, ref: s.cal ? s.cal.C[2].slice() : null, count: 0, t0: Date.now(), rate: 0, steps: makeStepDetector(), pose: makePose() };
   keepScreenOn();
   render();
   requestAnimationFrame(drawLoop);
@@ -626,7 +666,7 @@ function canLive(s) {
   return s.connected && s.hasLive && !s.download;
 }
 
-// "모두 실시간 보기": every connected sensor streams; values show in the tiles, graphs stay folded in the cards
+// "모두 실시간 보기": every connected sensor streams into its own panel at the top; the cards' live views stay folded
 $("btnLiveAll").addEventListener("click", async () => {
   const list = [...sensors.values()];
   if (list.some(s => s.live)) {
@@ -636,9 +676,9 @@ $("btnLiveAll").addEventListener("click", async () => {
   }
   render();
 });
-$("btnZeroAll").addEventListener("click", () => {
-  for (const s of sensors.values()) if (s.live && s.lv && s.lv.grav) s.lv.ref = s.lv.grav.slice();
-});
+$("btnCal").addEventListener("click", startCalibration);
+try { const hv = localStorage.getItem("runsensor.height"); if (hv) $("height").value = hv; } catch (e) {}
+$("height").addEventListener("change", () => { try { localStorage.setItem("runsensor.height", $("height").value); } catch (e) {} });
 
 // Fixed colours by position so L/R/P/B look the same every time
 function sensorColor(s) {
@@ -649,30 +689,36 @@ const POS_NAME = { L: "왼발", R: "오른발", P: "천골", B: "등" };
 
 function renderOverview(live) {
   $("overview").hidden = live.length === 0;
+  document.body.classList.toggle("wide", live.length > 0);
   const box = $("tiles");
   for (const s of sensors.values()) if (s.tile && !s.live) { s.tile.remove(); s.tile = null; }
-  const order = ["L", "R", "P", "B"], rank = s => (order.indexOf(sensorTag(s)) + 5) % 5;
+  const order = ["P", "B", "L", "R"], rank = s => (order.indexOf(sensorTag(s)) + 5) % 5;   // pelvis and back on top, feet below
   live.sort((a, b) => rank(a) - rank(b));
   for (const s of live) {
     if (!s.tile) {
       s.tile = document.createElement("div");
       s.tile.className = "tile";
       s.tile.innerHTML = `
-        <div class="tile-head"><span data-k="tname"></span><span class="signal" data-k="tsig" role="img"></span></div>
+        <div class="tile-head"><span class="tile-name" data-k="tname"></span><span class="signal" data-k="tsig" role="img"></span><button data-a="zero">기준 맞추기</button></div>
         <div class="stats">
           <div class="stat"><span class="label">케이던스</span><span class="v" data-k="cad">–</span></div>
           <div class="stat"><span class="label">기울기</span><span class="v" data-k="tilt">–</span></div>
           <div class="stat"><span class="label">가속도</span><span class="v" data-k="acc">–</span></div>
           <div class="stat"><span class="label">회전</span><span class="v" data-k="rot">–</span></div>
-        </div>`;
+        </div>
+        <div class="legend"><span><i style="background:var(--x)"></i>x</span><span><i style="background:var(--y)"></i>y</span><span><i style="background:var(--z)"></i>z</span><span data-k="rate"></span></div>
+        <span class="label">가속도 (g) · 최근 10초</span>
+        <canvas data-c="acc"></canvas>
+        <span class="label">회전 (°/s) · 최근 10초</span>
+        <canvas data-c="gyro"></canvas>`;
+      s.tile.querySelector('[data-a="zero"]').addEventListener("click", () => onCardAction(s, "zero"));
     }
-    box.appendChild(s.tile);   // keeps L R P B order
+    box.appendChild(s.tile);   // keeps P B L R order
     const tag = sensorTag(s);
     s.tile.style.setProperty("--c", sensorColor(s));
     s.tile.querySelector('[data-k="tname"]').textContent = POS_NAME[tag] ? `${tag} · ${POS_NAME[tag]}` : sensorName(s);
-    renderSignal(s.tile.querySelector('[data-k="tsig"]'), s.status.db, true);
+    renderSignal(s.tile.querySelector('[data-k="tsig"]'), s.status.db);
   }
-  $("ovLegend").innerHTML = live.map(s => `<span><i style="background:${sensorColor(s)}"></i>${sensorTag(s)}</span>`).join("");
 }
 
 function onLive(s, dv) {
@@ -688,6 +734,7 @@ function onLive(s, dv) {
     // gravity direction = slowly smoothed acceleration (about 0.4 s)
     L.grav = L.grav ? L.grav.map((v, k) => v * 0.95 + a[k] * 0.05) : a.slice();
     stepUpdate(L.steps, Math.hypot(a[0], a[1], a[2]));
+    poseUpdate(s, a, g);
     L.count++;
   }
   const sec = (Date.now() - L.t0) / 1000;
@@ -703,27 +750,486 @@ function angleDeg(u, v) {
 
 function drawLoop() {
   let any = false;
-  const live = [];
   for (const s of sensors.values()) {
     if (!s.live || !s.lv || !s.el) continue;
     any = true;
-    live.push(s);
     const L = s.lv, q = sel => s.el.querySelector(sel);
     const v = liveValues(s);
     if (v) {
       for (const el of [s.el, s.tile]) {
         if (!el || (el === s.el && !s.detail)) continue;
-        for (const k of ["tilt", "acc", "rot", "cad"]) el.querySelector(`[data-k="${k}"]`).textContent = el === s.tile ? v[k].replace(" 걸음", "") : v[k];
+        for (const k of ["tilt", "acc", "rot", "cad"]) el.querySelector(`[data-k="${k}"]`).textContent = v[k];
+        el.querySelector('[data-k="rate"]').textContent = L.rate ? `수신 ${Math.round(L.rate)}Hz` : "";
       }
-      q('[data-k="rate"]').textContent = L.rate ? `수신 ${Math.round(L.rate)}Hz` : "";
     }
-    if (s.detail) {
-      drawGraph(q('[data-c="acc"]'), L.buf, 0, 2);
-      drawGraph(q('[data-c="gyro"]'), L.buf, 3, 250);
+    for (const el of [s.detail && s.el, s.tile]) {
+      if (!el) continue;
+      drawGraph(el.querySelector('[data-c="acc"]'), L.buf, 0, 2);
+      drawGraph(el.querySelector('[data-c="gyro"]'), L.buf, 3, 250);
     }
   }
-  if (!$("overview").hidden) drawOverview($("ovGraph"), live);
+  if (!$("overview").hidden) drawPosture();
   if (any) requestAnimationFrame(drawLoop);
+}
+
+// ---------- posture: body angles from each sensor ----------
+// Each sensor keeps an estimate of "up" in its own axes (gyro turns it, gravity slowly corrects it).
+// "자세 기준 잡기" teaches the app which way each sensor faces on the body:
+//   1) stand still  -> up direction (and gyro offset)
+//   2) bend forward -> forward direction for B and P
+//   3) lift the toes -> forward direction for L and R
+// Body axes: x = right, y = forward, z = up.
+
+const DEG = Math.PI / 180;
+const vadd = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+const vsub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const vmul = (a, k) => [a[0] * k, a[1] * k, a[2] * k];
+const vdot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const vcross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const vlen = a => Math.hypot(a[0], a[1], a[2]);
+const vnorm = a => vmul(a, 1 / (vlen(a) || 1));
+const toBody = (C, v) => [vdot(C[0], v), vdot(C[1], v), vdot(C[2], v)];
+
+function makePose() {
+  return { up: null, yaw: 0, ang: null, foot: { stillN: 0, stance: false, swing: [], recent: [], steps: [], lastLand: 0, period: 1, stanceStart: 0 } };
+}
+
+// called for every live sample (a in g, w in deg/s, 20 ms apart)
+function poseUpdate(s, a, wdps) {
+  const P = s.lv.pose, dt = 0.02, cal = s.cal;
+  if (calRun && calRun.rec) calCollect(s, a, wdps);
+  const w = wdps.map((v, i) => (v - (cal ? cal.bias[i] : 0)) * DEG);
+  const an = vlen(a);
+  if (!P.up) P.up = vnorm(a);
+  else {
+    // a direction fixed in the world turns the opposite way to the sensor
+    let u = vsub(P.up, vmul(vcross(w, P.up), dt));
+    const k = Math.abs(an - 1) < 0.15 ? 0.04 : Math.abs(an - 1) < 0.4 ? 0.01 : 0;
+    P.up = vnorm(vadd(vmul(vnorm(u), 1 - k), vmul(vnorm(a), k)));
+  }
+  if (!cal || !cal.C) { P.ang = null; return; }
+  const gb = toBody(cal.C, P.up), wb = toBody(cal.C, w);
+  // twist about the vertical: no compass, so it is pulled slowly back to 0 (shows the swing, not the heading)
+  P.yaw = P.yaw * (1 - 0.5 * dt) + vdot(wb, gb) * dt / DEG;
+  const pitch = Math.atan2(-gb[1], gb[2]) / DEG;   // + = leaning forward
+  const roll = Math.atan2(-gb[0], gb[2]) / DEG;    // + = right side lower
+  P.ang = { pitch, roll, yaw: P.yaw };
+  const tag = sensorTag(s);
+  if (tag === "L" || tag === "R") footUpdate(s, a, w, an, gb, tag);
+}
+
+// ---------- feet: one heel sensor per foot ----------
+// Foot flat and still (low rotation, about 1 g) = standing on it. Between two stances the heel's
+// acceleration is turned into a level frame and integrated twice; the speed must be 0 again at the
+// next landing, so the leftover drift is removed in a straight line. 50 Hz is coarse: about ±10%.
+function footUpdate(s, a, w, an, gb, tag) {
+  const F = s.lv.pose.foot, cal = s.cal, now = performance.now();
+  const pitch = Math.atan2(gb[1], gb[2]) / DEG;                      // + = toes up (dorsiflexion)
+  const inv = (tag === "R" ? 1 : -1) * Math.atan2(-gb[0], gb[2]) / DEG;   // + = inversion, - = eversion
+  F.pitch = pitch; F.inv = inv;
+  F.recent.push({ pitch, inv, an }); if (F.recent.length > 10) F.recent.shift();
+  const still = vlen(w) / DEG < 100 && Math.abs(an - 1) < 0.3;
+  F.stillN = still ? F.stillN + 1 : 0;
+  if (!F.stance && F.stillN >= 3) {
+    // landing
+    F.stance = true; F.stanceStart = now;
+    if (F.lastLand) F.period = Math.min(2.5, Math.max(0.5, (now - F.lastLand) / 1000));
+    F.lastLand = now;
+    finishSwing(s, F);   // closes the previous step: its stance plus the swing that just ended
+    // step time = from the other foot's landing to this one; with the walking speed it gives this foot's step length
+    const other = footLand[tag === "L" ? "R" : "L"];
+    footLand[tag] = now;
+    F.cur = {
+      stepT: other && now - other < 2000 ? (now - other) / 1000 : null,
+      landPitch: Math.max(...F.recent.map(r => r.pitch)),
+      landInv: Math.max(...F.recent.map(r => r.inv)),
+      impact: Math.max(...F.recent.map(r => r.an)),
+      maxEv: 0,
+    };
+  } else if (F.stance && !still && F.stillN === 0 && (now - F.stanceStart) > 80) {
+    // lift-off
+    F.stance = false;
+    if (F.cur) F.cur.stance = (now - F.stanceStart) / 1000;
+    F.swing = []; F.toeOff = 0;
+  }
+  if (F.stance && F.cur) F.cur.maxEv = Math.max(F.cur.maxEv, -inv);
+  if (!F.stance) {
+    F.toeOff = Math.min(F.toeOff || 0, pitch);
+    const up = s.lv.pose.up, Ys = cal.C[1];
+    const fwd = vnorm(vsub(Ys, vmul(up, vdot(Ys, up)))), lat = vcross(fwd, up);
+    F.swing.push([vdot(a, lat) * 9.81, vdot(a, fwd) * 9.81, (vdot(a, up) - 1) * 9.81]);
+    if (F.swing.length > 100) F.swing = [];   // more than 2 s in the air: not walking
+  }
+}
+
+const footLand = {};
+
+function finishSwing(s, F) {
+  const acc = F.swing, n = acc.length, dt = 0.02;
+  F.swing = [];
+  if (n < 8 || !F.cur) return;
+  const vel = [[0, 0, 0]];
+  for (let i = 1; i < n; i++) vel.push(vel[i - 1].map((v, k) => v + (acc[i][k] + acc[i - 1][k]) / 2 * dt));
+  const end = vel[n - 1];
+  const pos = [[0, 0, 0]];
+  let vmax = 0;
+  for (let i = 1; i < n; i++) {
+    vel[i] = vel[i].map((v, k) => v - end[k] * i / (n - 1));
+    pos.push(pos[i - 1].map((p, k) => p + (vel[i][k] + vel[i - 1][k]) / 2 * dt));
+    vmax = Math.max(vmax, Math.hypot(vel[i][0], vel[i][1]));
+  }
+  // the heel is back on the ground at landing, so any height left over is drift (the landing jolt is
+  // too short to catch at 50 Hz): take it out in a straight line
+  const zEnd = pos[n - 1][2];
+  let lift = 0;
+  for (let i = 0; i < n; i++) { pos[i][2] -= zEnd * i / (n - 1); lift = Math.max(lift, pos[i][2]); }
+  const stride = Math.hypot(pos[n - 1][0], pos[n - 1][1]);
+  if (stride < 0.1 || stride > 3) return;
+  // knee height (estimate): hip above the middle of the stride, thigh = shin = 0.245 x height
+  const H = bodyHeight(), seg = 0.245 * H, hipZ = 0.53 * H, heel0 = 0.05;
+  let knee = 0;
+  for (const p of pos) {
+    const hx = p[1] - stride / 2, hz = heel0 + p[2] - hipZ, d = Math.hypot(hx, hz);
+    const e = Math.sqrt(Math.max(0, seg * seg - d * d / 4));
+    knee = Math.max(knee, hipZ + hz / 2 + e * hx / (d || 1));   // the knee sits forward of the hip-heel line
+  }
+  const speed = stride / F.period;   // one stride (both steps) per cycle of this foot
+  F.steps.push({ ...F.cur, stride, speed, stepLen: F.cur.stepT ? speed * F.cur.stepT : null, lift, vmax, knee, toeOff: -(F.toeOff || 0), swingT: n * dt });
+  if (F.steps.length > 6) F.steps.shift();
+}
+
+function footSummary(s) {
+  const st = s && s.lv && s.lv.pose && s.lv.pose.foot.steps;
+  if (!st || !st.length) return null;
+  const avg = k => { const v = st.filter(y => y[k] != null); return v.length ? v.reduce((x, y) => x + y[k], 0) / v.length : null; };
+  return { stride: avg("stride"), speed: avg("speed"), stepLen: avg("stepLen"), lift: avg("lift"), knee: avg("knee"), vmax: avg("vmax"), stance: avg("stance"),
+           impact: avg("impact"), landPitch: avg("landPitch"), toeOff: avg("toeOff"), landInv: avg("landInv"), maxEv: avg("maxEv"), n: st.length };
+}
+
+function bodyHeight() {
+  const v = +$("height").value;
+  return (v >= 120 && v <= 220 ? v : 170) / 100;
+}
+
+// ---------- "자세 기준 잡기" ----------
+const CAL_STEPS = [
+  { text: "똑바로 서서 앞을 보고 가만히 있어요", key: "stand" },
+  { text: "허리를 앞으로 30° 정도 숙이고 가만히 있어요", key: "bend" },
+  { text: "다시 서서, 뒤꿈치로 서듯 발끝을 들고 가만히 있어요", key: "toes" },
+];
+let calRun = null;
+
+function calCollect(s, a, w) {
+  const tag = sensorTag(s), r = calRun.data[tag] || (calRun.data[tag] = {});
+  const k = calRun.key, d = r[k] || (r[k] = { a: [0, 0, 0], w: [0, 0, 0], n: 0 });
+  d.a = vadd(d.a, a); d.w = vadd(d.w, w); d.n++;
+}
+
+async function startCalibration() {
+  const live = [...sensors.values()].filter(s => s.live && s.lv);
+  if (!live.length) return;
+  const say = t => { $("calMsg").textContent = t; };
+  $("btnCal").disabled = true;
+  calRun = { data: {}, rec: false, key: null };
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  for (let i = 0; i < CAL_STEPS.length; i++) {
+    const st = CAL_STEPS[i];
+    calRun.key = st.key; calRun.rec = false;
+    for (let c = 3; c > 0; c--) { say(`${i + 1}/3 준비: ${st.text} (${c})`); await wait(700); }
+    calRun.rec = true;
+    for (let c = 3; c > 0; c--) { say(`${i + 1}/3 재는 중: ${st.text} … ${c}초`); await wait(1000); }
+    calRun.rec = false;
+  }
+  const problems = [];
+  for (const s of live) {
+    const tag = sensorTag(s), d = calRun.data[tag];
+    const second = tag === "L" || tag === "R" ? "toes" : "bend";
+    if (!d || !d.stand || !d[second] || !d.stand.n || !d[second].n) { problems.push(`${tag}: 데이터가 안 왔어요`); continue; }
+    const up1 = vnorm(vmul(d.stand.a, 1 / d.stand.n)), up2 = vnorm(vmul(d[second].a, 1 / d[second].n));
+    const ang = Math.acos(Math.max(-1, Math.min(1, vdot(up1, up2)))) / DEG;
+    if (ang < 8) { problems.push(`${tag}: ${second === "bend" ? "허리를 더 숙여" : "발끝을 더 들어"} 주세요 (${ang.toFixed(0)}°)`); continue; }
+    let Y = vsub(vmul(up1, vdot(up1, up2)), up2);      // bending forward tips "up" backwards in the sensor
+    if (second === "toes") Y = vmul(Y, -1);              // lifting the toes tips it the other way
+    Y = vnorm(Y);
+    s.cal = { C: [vcross(Y, up1), Y, up1], bias: vmul(d.stand.w, 1 / d.stand.n), at: Date.now() };
+    s.lv.pose = makePose();
+    s.lv.ref = up1.slice();
+  }
+  calRun = null;
+  say(problems.length ? "다시 해 주세요 · " + problems.join(" · ") : "기준을 잡았어요. 이제 걷거나 뛰어 보세요.");
+  $("btnCal").disabled = false;
+  posture.hist = [];
+}
+
+// ---------- drawing the body from behind ----------
+const posture = { hist: [] };
+const NEUTRAL = { pitch: 0, roll: 0, yaw: 0 };
+
+function sensorByTag(tag) {
+  return [...sensors.values()].find(s => s.live && s.lv && sensorTag(s) === tag);
+}
+
+function postureFrame() {
+  const B = sensorByTag("B"), P = sensorByTag("P"), L = sensorByTag("L"), R = sensorByTag("R");
+  const ang = s => (s && s.lv.pose && s.lv.pose.ang) || null;
+  const m = { B: ang(B) || NEUTRAL, P: ang(P) || NEUTRAL, hasB: !!ang(B), hasP: !!ang(P) };
+  m.D = { pitch: m.B.pitch - m.P.pitch, roll: m.B.roll - m.P.roll, yaw: m.B.yaw - m.P.yaw };
+  const now = performance.now();
+  for (const [tag, s] of [["L", L], ["R", R]]) {
+    const F = s && s.lv.pose && s.lv.pose.foot, sum = footSummary(s);
+    const moving = F && F.lastLand && now - F.lastLand < 2500;
+    m[tag] = {
+      on: !!(s && s.cal), sum,
+      p: moving ? ((now - F.lastLand) / 1000 / F.period) % 1 : 0.3,
+      stanceFrac: sum && sum.stance && F.period ? Math.min(0.75, sum.stance / F.period) : 0.6,
+      pitch: F && F.pitch != null && s.cal ? F.pitch : 0, inv: F && F.inv != null && s.cal ? F.inv : 0,
+      stride: sum ? sum.stride : 0.6, lift: sum ? sum.lift : 0.15, moving: !!moving,
+    };
+  }
+  return m;
+}
+
+function postureStats() {
+  const h = posture.hist, out = {};
+  const mean = a => a.reduce((x, y) => x + y, 0) / (a.length || 1);
+  for (const g of ["B", "P", "D"]) {
+    out[g] = {};
+    for (const k of ["pitch", "roll", "yaw"]) {
+      const a = h.map(x => x[g][k]);
+      out[g][k] = { mean: mean(a), lo: a.length ? Math.min(...a) : 0, hi: a.length ? Math.max(...a) : 0 };
+    }
+  }
+  return out;
+}
+
+function projectBack(p, w, h, k0) {
+  const pc = 8 * DEG, dist = 3.8;
+  let [x, y, z] = p; z -= 0.9;
+  [y, z] = [y * Math.cos(pc) - z * Math.sin(pc), y * Math.sin(pc) + z * Math.cos(pc)];
+  const k = k0 / (dist + y);
+  return { x: w * 0.5 + x * k, y: h * 0.56 - z * k };
+}
+
+// rotate a body-local vector: forward lean, then side lean, then twist
+function rotBody(v, a) {
+  let [x, y, z] = v;
+  const cp = Math.cos(a.pitch * DEG), sp = Math.sin(a.pitch * DEG);
+  [y, z] = [y * cp + z * sp, -y * sp + z * cp];
+  const cr = Math.cos(a.roll * DEG), sr = Math.sin(a.roll * DEG);
+  [x, z] = [x * cr - z * sr, x * sr + z * cr];
+  const cy = Math.cos(a.yaw * DEG), sy = Math.sin(a.yaw * DEG);
+  [x, y] = [x * cy + y * sy, -x * sy + y * cy];
+  return [x, y, z];
+}
+
+function buildBody(m, S) {
+  const TAU = Math.PI * 2;
+  const pc = [0, 0, 0.98 * S];
+  const Pp = v => vadd(pc, rotBody(vmul(v, S), m.P));
+  const pel = {
+    crestL: Pp([-0.15, 0, 0.1]), crestR: Pp([0.15, 0, 0.1]),
+    hipL: Pp([-0.09, 0.04, -0.05]), hipR: Pp([0.09, 0.04, -0.05]),
+    pubis: Pp([0, 0.06, -0.11]), sacrum: Pp([0, -0.1, 0.04]), lumbar: Pp([0, -0.03, 0.12]),
+  };
+  const Tp = v => vadd(pel.lumbar, rotBody(vmul(v, S), m.B));
+  const tr = {
+    neck: Tp([0, -0.02, 0.45]), back: Tp([0, -0.12, 0.33]), head: Tp([0, 0.02, 0.6]),
+    shL: Tp([-0.19, 0, 0.42]), shR: Tp([0.19, 0, 0.42]), ribL: Tp([-0.13, 0, 0.16]), ribR: Tp([0.13, 0, 0.16]),
+  };
+  const leg = (side, hip, f) => {
+    // heel goes from front to back while standing on it, then swings forward again
+    const p = f.p, sf = f.stanceFrac, half = f.moving ? f.stride / 2 : 0;
+    const y = (p < sf ? half * Math.cos(Math.PI * p / sf) : -half * Math.cos(Math.PI * (p - sf) / (1 - sf))) + 0.04;
+    const lift = f.moving && p > sf ? f.lift * Math.sin(Math.PI * (p - sf) / (1 - sf)) : 0;
+    const heel = [side * 0.1 * S, y, 0.05 * S + lift];
+    const Lseg = 0.44 * S, d = vsub(heel, hip), dl = vlen(d), dn = vnorm(d);
+    const fwd = vnorm(vsub([0, 1, 0], vmul(dn, dn[1])));
+    const e = Math.sqrt(Math.max(0, Lseg * Lseg - dl * dl / 4));
+    const knee = vadd(vadd(hip, vmul(d, 0.5)), vmul(fwd, e));
+    const toe = vadd(heel, [0, 0.2 * S * Math.cos(f.pitch * DEG), 0.2 * S * Math.sin(f.pitch * DEG)]);
+    return { heel, knee, toe, side, f };
+  };
+  const lL = leg(-1, pel.hipL, m.L), lR = leg(1, pel.hipR, m.R);
+  // arms swing with the opposite leg; elbow bends more in front
+  const arm = (side, sh, ph, moving) => {
+    const swing = moving ? 22 * Math.cos(ph) : 0, flex = 18 + (moving ? 22 * Math.max(0, Math.cos(ph)) : 0);
+    const up = rotBody([side * 0.05, 0, -0.29], { pitch: -swing, roll: 0, yaw: 0 });
+    const el = vadd(sh, rotBody(vmul(up, S), m.B));
+    const fa = rotBody([side * 0.02, 0, -0.27], { pitch: -swing - flex, roll: 0, yaw: 0 });
+    return { elbow: el, hand: vadd(el, rotBody(vmul(fa, S), m.B)) };
+  };
+  const phL = TAU * m.R.p, phR = TAU * m.L.p, mv = m.L.moving || m.R.moving;
+  return { pel, tr, lL, lR, aL: arm(-1, tr.shL, phL, mv), aR: arm(1, tr.shR, phR, mv) };
+}
+
+function postureAlerts(st, m) {
+  const out = [];
+  if (m.hasB && Math.abs(st.B.roll.mean) > 2)
+    out.push({ part: "trunk", lvl: Math.abs(st.B.roll.mean) > 4 ? "bad" : "warn", text: `상체가 ${st.B.roll.mean > 0 ? "오른쪽" : "왼쪽"}으로 ${Math.abs(st.B.roll.mean).toFixed(0)}° 기울어 있어요. 반대쪽 어깨를 살짝 올려 보세요.` });
+  if (m.hasB && st.B.pitch.mean > 15)
+    out.push({ part: "trunk", lvl: "warn", text: `상체가 앞으로 ${st.B.pitch.mean.toFixed(0)}° 숙여져 있어요. 가슴을 펴 보세요.` });
+  if (m.hasP && (m.L.moving || m.R.moving || st.P.roll.hi - st.P.roll.lo > 3)) {
+    const dropR = Math.max(0, st.P.roll.hi), dropL = Math.max(0, -st.P.roll.lo);   // from the standing reference
+    if (Math.abs(dropL - dropR) > 2) {
+      const stand = dropR > dropL ? "왼발" : "오른발", side = dropR > dropL ? "오른쪽" : "왼쪽", glute = dropR > dropL ? "왼쪽" : "오른쪽";
+      out.push({ part: "pelvis", lvl: "bad", text: `${stand}로 설 때 ${side} 골반이 더 떨어져요 (${Math.max(dropL, dropR).toFixed(0)}° vs ${Math.min(dropL, dropR).toFixed(0)}°). ${glute} 엉덩이에 힘을 주세요.` });
+    }
+  }
+  if (m.hasP && Math.abs(st.P.roll.mean) > 3)
+    out.push({ part: "pelvis", lvl: "warn", text: `골반이 ${st.P.roll.mean > 0 ? "오른쪽" : "왼쪽"}이 ${Math.abs(st.P.roll.mean).toFixed(0)}° 낮게 기울어 있어요.` });
+  if (m.hasB && m.hasP && (m.L.moving || m.R.moving) && (st.D.yaw.hi - st.D.yaw.lo) / 2 < 3)
+    out.push({ part: "waist", lvl: "warn", text: "상체와 골반이 같이 돌아가요. 팔을 조금 더 흔들어 보세요." });
+  const eL = m.L.sum && m.L.sum.maxEv, eR = m.R.sum && m.R.sum.maxEv;
+  if (eL != null && eR != null && Math.abs(eL - eR) > 3) {
+    const big = eR > eL ? "오른발" : "왼발";
+    out.push({ part: "foot", lvl: "bad", text: `${big}이 디딜 때 안쪽으로 ${Math.max(eL, eR).toFixed(0)}° 무너져요 (반대쪽 ${Math.min(eL, eR).toFixed(0)}°). 발 아치와 무릎이 안쪽으로 쏠리지 않게 해 보세요.` });
+  }
+  const sL = m.L.sum && m.L.sum.stepLen, sR = m.R.sum && m.R.sum.stepLen;
+  if (sL && sR && Math.abs(sL - sR) / Math.max(sL, sR) > 0.08)
+    out.push({ part: "foot", lvl: "warn", text: `${sL > sR ? "왼발" : "오른발"} 보폭이 ${(Math.abs(sL - sR) * 100).toFixed(0)}cm 더 길어요 (${(sL * 100).toFixed(0)} / ${(sR * 100).toFixed(0)}cm).` });
+  return out;
+}
+
+function drawPosture() {
+  const cv = $("postureCv"), dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+  if (!w) return;
+  if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+  const c = cv.getContext("2d"); c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, w, h);
+  const css = getComputedStyle(document.documentElement), col = v => css.getPropertyValue(v).trim();
+  const TAU = Math.PI * 2, S = bodyHeight() / 1.7, now = performance.now();
+  const m = postureFrame();
+  posture.hist.push({ t: now, B: m.B, P: m.P, D: m.D });
+  while (posture.hist.length && now - posture.hist[0].t > 2500) posture.hist.shift();
+  const st = postureStats();
+  const calibrated = [...sensors.values()].some(s => s.live && s.cal);
+  const alerts = calibrated ? postureAlerts(st, m) : [{ lvl: "warn", text: "\"자세 기준 잡기\"를 먼저 해 주세요. 10초 걸려요." }];
+  if (calibrated && !alerts.length) alerts.push({ lvl: "ok", text: "좋아요. 똑바로 걷고 있어요." });
+  const fb = alerts.map(a => `<li class="${a.lvl}">${a.text}</li>`).join("");
+  if (posture.fb !== fb) { $("postureFb").innerHTML = fb; posture.fb = fb; }
+  const bad = new Set(alerts.filter(a => a.part && a.lvl === "bad").map(a => a.part));
+  const warnP = new Set(alerts.filter(a => a.part).map(a => a.part));
+
+  // on a narrow screen the two small views go below the figure instead of beside it
+  const compact = w < 520, hf = compact ? h - 168 : h;
+  const k0 = hf * 1.65 / S, P = q => projectBack(q, w, hf, k0);
+  const b = buildBody(m, S);
+  const ink = col("--ink"), mut = col("--muted"), lw = Math.max(3, h / 110);
+  const line = (pts, color, width) => { c.strokeStyle = color; c.lineWidth = width; c.lineCap = c.lineJoin = "round"; c.beginPath(); pts.map(P).forEach((p, i) => i ? c.lineTo(p.x, p.y) : c.moveTo(p.x, p.y)); c.stroke(); };
+  const poly = (pts, fill, stroke, width) => { c.beginPath(); pts.map(P).forEach((p, i) => i ? c.lineTo(p.x, p.y) : c.moveTo(p.x, p.y)); c.closePath(); c.fillStyle = fill; c.fill(); if (stroke) { c.strokeStyle = stroke; c.lineWidth = width; c.stroke(); } };
+
+  // treadmill belt, straight-ahead line and a plumb line
+  const moving = m.L.moving || m.R.moving;
+  posture.belt = ((posture.belt || 0) + (moving ? 0.016 : 0)) % 0.25;
+  c.strokeStyle = col("--grid"); c.lineWidth = 1;
+  const belt = [[-0.35, -0.6], [0.35, -0.6], [0.35, 0.9], [-0.35, 0.9]].map(([x, y]) => P([x * S, y * S, 0]));
+  c.beginPath(); belt.forEach((p, i) => i ? c.lineTo(p.x, p.y) : c.moveTo(p.x, p.y)); c.closePath(); c.stroke();
+  for (let y = -0.6 + posture.belt; y < 0.9; y += 0.25) { const a = P([-0.35 * S, y * S, 0]), e = P([0.35 * S, y * S, 0]); c.beginPath(); c.moveTo(a.x, a.y); c.lineTo(e.x, e.y); c.stroke(); }
+  c.setLineDash([6, 6]); c.strokeStyle = mut;
+  let a0 = P([0, -0.6 * S, 0]), a1 = P([0, 0.9 * S, 0]); c.beginPath(); c.moveTo(a0.x, a0.y); c.lineTo(a1.x, a1.y); c.stroke();
+  a0 = P([0, 0, 0]); a1 = P([0, 0, 1.75 * S]); c.beginPath(); c.moveTo(a0.x, a0.y); c.lineTo(a1.x, a1.y); c.stroke(); c.setLineDash([]);
+
+  // legs (the one further forward is further from us, so it goes first) and shoe heels
+  const legs = [[b.lL, b.pel.hipL, "L"], [b.lR, b.pel.hipR, "R"]].sort((x, y) => y[0].heel[1] - x[0].heel[1]);
+  for (const [lg, hip, tag] of legs) {
+    line([hip, lg.knee, lg.heel], ink, lw * 1.3); line([lg.heel, lg.toe], ink, lw);
+    const th = lg.side * lg.f.inv * DEG, hw = 0.045 * S, hh = 0.07 * S;
+    const corner = (x, z) => vadd(lg.heel, [x * Math.cos(th) + z * Math.sin(th), -0.02 * S, -0.04 * S + (-x * Math.sin(th) + z * Math.cos(th))]);
+    const evBad = bad.has("foot") && lg.f.sum && lg.f.sum.maxEv > 8;
+    const cl = col(evBad ? "--rec" : "--s" + tag);
+    poly([corner(-hw, 0), corner(hw, 0), corner(hw * 0.8, hh), corner(-hw * 0.8, hh)], cl + "88", cl, 2);
+  }
+  const pelCol = col(bad.has("pelvis") ? "--rec" : warnP.has("pelvis") ? "--warn" : "--sP");
+  poly([b.pel.crestL, b.pel.hipL, b.pel.pubis, b.pel.hipR, b.pel.crestR, b.pel.lumbar], pelCol + "40", pelCol, lw * 0.8);
+  const trCol = col(bad.has("trunk") ? "--rec" : warnP.has("trunk") ? "--warn" : "--sB");
+  poly([b.tr.shL, b.tr.shR, b.tr.ribR, b.pel.lumbar, b.tr.ribL], trCol + "30", null);
+  line([b.pel.lumbar, b.tr.neck], warnP.has("waist") ? col("--warn") : ink, lw * 1.2);
+  line([b.tr.shL, b.tr.shR], trCol, lw * 1.2);
+  for (const [a, sh] of [[b.aL, b.tr.shL], [b.aR, b.tr.shR]]) line([sh, a.elbow, a.hand], ink, lw);
+  line([b.tr.neck, b.tr.head], ink, lw);
+  const hp = P(b.tr.head); c.fillStyle = ink; c.beginPath(); c.arc(hp.x, hp.y, k0 / 3.8 * 0.085 * S, 0, TAU); c.fill();
+  // level guides at the shoulders and the hip crests; ▼ marks the low side when it is flagged
+  for (const [pa, pb, flag] of [[b.tr.shL, b.tr.shR, warnP.has("trunk")], [b.pel.crestL, b.pel.crestR, warnP.has("pelvis")]]) {
+    const A = P(pa), B2 = P(pb), my = (A.y + B2.y) / 2;
+    c.setLineDash([2, 4]); c.strokeStyle = mut; c.lineWidth = 1; c.beginPath(); c.moveTo(A.x - 30, my); c.lineTo(B2.x + 30, my); c.stroke(); c.setLineDash([]);
+    if (flag) { const low = B2.y > A.y ? B2 : A; c.fillStyle = col("--rec"); c.font = "600 12px system-ui"; c.fillText("▼", low === B2 ? low.x + 10 : low.x - 20, low.y + 4); }
+  }
+  // sensor spots (faded when that sensor is not streaming or not set up)
+  const spot = { B: b.tr.back, P: b.pel.sacrum, L: b.lL.heel, R: b.lR.heel };
+  for (const k in spot) {
+    const s = sensorByTag(k), p = P(spot[k]);
+    c.globalAlpha = s && s.cal ? 1 : 0.3;
+    c.fillStyle = col("--s" + k); c.beginPath(); c.arc(p.x, p.y, 7, 0, TAU); c.fill(); c.strokeStyle = col("--surface"); c.lineWidth = 2; c.stroke();
+    c.font = "600 12px system-ui"; c.fillText(k, p.x + 10, p.y + 4); c.globalAlpha = 1;
+  }
+
+  // inset, bottom left: forward lean seen from the side
+  {
+    const iw = compact ? 104 : 116, ih = 112, ix = compact ? 0 : 10, iy = compact ? h - 150 : h - 122;
+    c.strokeStyle = col("--line"); c.lineWidth = 1; c.strokeRect(ix, iy, iw, ih);
+    c.fillStyle = mut; c.font = "11px system-ui"; c.fillText("옆에서", ix + 6, iy + 14);
+    const base = { x: ix + iw / 2, y: iy + ih - 34 };
+    c.setLineDash([2, 3]); c.strokeStyle = mut; c.beginPath(); c.moveTo(base.x, iy + 20); c.lineTo(base.x, iy + ih - 6); c.stroke(); c.setLineDash([]);
+    const seg = (ang, L, colr, from) => { const e = { x: from.x + L * Math.sin(ang * DEG), y: from.y - L * Math.cos(ang * DEG) }; c.strokeStyle = colr; c.lineWidth = 4; c.lineCap = "round"; c.beginPath(); c.moveTo(from.x, from.y); c.lineTo(e.x, e.y); c.stroke(); return e; };
+    const pTop = seg(m.P.pitch, 22, col("--sP"), base), tTop = seg(m.B.pitch, 50, col("--sB"), pTop);
+    c.fillStyle = ink; c.beginPath(); c.arc(tTop.x + 4 * Math.sin(m.B.pitch * DEG), tTop.y - 9, 7, 0, TAU); c.fill();
+    c.fillStyle = mut; c.fillText(`상체 ${m.B.pitch.toFixed(0)}°  골반 ${m.P.pitch.toFixed(0)}°`, ix + 6, iy + ih - 8);
+  }
+  // inset, bottom right: both heels from behind, enlarged, with foot pitch below
+  {
+    const bw = compact ? Math.min(180, w - 112) : 180, bh = 150, bx = w - bw - (compact ? 0 : 10), by = h - bh - (compact ? 0 : 8);
+    c.strokeStyle = col("--line"); c.lineWidth = 1; c.strokeRect(bx, by, bw, bh);
+    c.fillStyle = mut; c.font = "11px system-ui"; c.fillText("발 뒤꿈치 (뒤에서 확대)", bx + 6, by + 14);
+    const gy = by + 92;
+    c.strokeStyle = mut; c.beginPath(); c.moveTo(bx + 8, gy); c.lineTo(bx + bw - 8, gy); c.stroke();
+    for (const [lg, tag, cx] of [[b.lL, "L", bx + bw * 0.27], [b.lR, "R", bx + bw * 0.73]]) {
+      const f = lg.f, ev = -f.inv, th = lg.side * f.inv * DEG, lift = Math.min(40, (lg.heel[2] - 0.05 * S) * 120);
+      const base = { x: cx, y: gy - lift }, hw2 = 18, hh2 = 26;
+      const pt = (x, z) => ({ x: base.x + x * Math.cos(th) + z * Math.sin(th), y: base.y - (-x * Math.sin(th) + z * Math.cos(th)) });
+      const cl = col(f.sum && f.sum.maxEv > 8 && bad.has("foot") ? "--rec" : "--s" + tag);
+      c.globalAlpha = f.on ? 1 : 0.3;
+      const top = pt(0, hh2);
+      c.strokeStyle = ink; c.lineWidth = 5; c.lineCap = "round"; c.beginPath(); c.moveTo(top.x - lg.side * 2, top.y - 38); c.lineTo(top.x, top.y); c.stroke();
+      const q = [pt(-hw2, 0), pt(hw2, 0), pt(hw2 * 0.8, hh2), pt(-hw2 * 0.8, hh2)];
+      c.beginPath(); q.forEach((p, i) => i ? c.lineTo(p.x, p.y) : c.moveTo(p.x, p.y)); c.closePath(); c.fillStyle = cl + "88"; c.fill(); c.strokeStyle = cl; c.lineWidth = 2; c.stroke();
+      c.setLineDash([2, 3]); c.strokeStyle = mut; c.lineWidth = 1; c.beginPath(); c.moveTo(cx, gy); c.lineTo(cx, by + 22); c.stroke(); c.setLineDash([]);
+      c.fillStyle = cl; c.font = "600 11px system-ui";
+      c.fillText(`${tag} ${ev >= 0 ? "외번" : "내번"} ${Math.abs(ev).toFixed(0)}°`, cx - 30, gy + 15);
+      const fp = f.pitch, fx = cx - 22, fy = by + bh - 14;
+      c.strokeStyle = cl; c.lineWidth = 4; c.beginPath(); c.moveTo(fx, fy); c.lineTo(fx + 30 * Math.cos(fp * DEG), fy - 30 * Math.sin(fp * DEG)); c.stroke();
+      c.fillStyle = mut; c.font = "10px system-ui"; c.fillText(`${fp >= 0 ? "발등" : "발바닥"} ${Math.abs(fp).toFixed(0)}°`, fx + 34, fy + 2);
+      c.globalAlpha = 1;
+    }
+  }
+
+  // side panel: angle bars and the feet table (redrawn about 10 times a second)
+  if (now - (posture.panelT || 0) < 100) return;
+  posture.panelT = now;
+  const names = [["앞뒤 기울기", "pitch", "--x"], ["좌우 기울기", "roll", "--y"], ["비틀림", "yaw", "--z"]];
+  const cur = { B: m.B, P: m.P, D: m.D }, has = { B: m.hasB, P: m.hasP, D: m.hasB && m.hasP };
+  for (const g of ["B", "P", "D"]) {
+    $("pg" + g).innerHTML = !has[g] ? `<div class="msg">${g === "D" ? "B와 P가 모두 필요해요." : "센서 연결과 \"자세 기준 잡기\"가 필요해요."}</div>` : names.map(([name, k, cl]) => {
+      const v = cur[g][k], r = st[g][k], X = d => Math.max(2, Math.min(98, 50 + d * 2.2));
+      return `<div class="prow"><span>${name}</span><span class="pbar"><u></u><i style="background:${col(cl)};left:${X(r.lo)}%;width:${X(r.hi) - X(r.lo)}%"></i><b style="left:${X(v)}%"></b></span><span class="pv">${v >= 0 ? "+" : ""}${v.toFixed(0)}° <small>±${((r.hi - r.lo) / 2).toFixed(0)}</small></span></div>`;
+    }).join("");
+  }
+  const fL = m.L.sum, fR = m.R.sum;
+  const cell = (f, fn, warnFn) => !f ? "–" : `<span${warnFn && warnFn(f) ? ' class="bad"' : ""}>${fn(f)}</span>`;
+  const evWarn = f => bad.has("foot") && f.maxEv > 8;
+  const rows = [
+    ["보폭 (한 걸음)", f => f.stepLen ? f.stepLen.toFixed(2) + " m" : "–"],
+    ["속도 (발로 계산)", f => f.speed ? (f.speed * 3.6).toFixed(1) + " km/h" : "–"],
+    ["뒤꿈치 높이", f => Math.round(f.lift * 100) + " cm"],
+    ["무릎 높이 (추정)", f => Math.round(f.knee * 100) + " cm"],
+    ["발 최고 속도", f => f.vmax.toFixed(1) + " m/s"],
+    ["발 붙은 시간", f => f.stance ? f.stance.toFixed(2) + " s" : "–"],
+    ["착지 충격", f => f.impact.toFixed(1) + " g"],
+    ["착지 발등 굽힘", f => Math.round(f.landPitch) + "°"],
+    ["차기 발바닥 굽힘", f => Math.round(f.toeOff) + "°"],
+    ["착지 내번", f => Math.round(f.landInv) + "°"],
+    ["최대 외번", f => Math.round(f.maxEv) + "°", evWarn],
+  ];
+  $("pFeet").innerHTML = `<span></span><span style="color:var(--sL)">L 왼발</span><span style="color:var(--sR)">R 오른발</span>` +
+    rows.map(([n, fn, wf]) => `<span>${n}</span>${cell(fL, fn, wf).replace(/^(?!<span)(.*)$/, "<span>$1</span>")}${cell(fR, fn, wf).replace(/^(?!<span)(.*)$/, "<span>$1</span>")}`).join("");
 }
 
 function liveValues(s) {
@@ -740,37 +1246,6 @@ function liveValues(s) {
     rot: Math.round(Math.max(...recent.map(r => Math.hypot(r[3], r[4], r[5])))) + "°/s",
     cad: cad ? Math.round(cad) + " 걸음/분" : "–",
   };
-}
-
-// One line per sensor: total acceleration, so foot strikes and body bounce can be compared side by side
-function drawOverview(cv, live) {
-  const dpr = window.devicePixelRatio || 1;
-  const w = cv.clientWidth, h = cv.clientHeight;
-  if (!w) return;
-  if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
-  const c = cv.getContext("2d");
-  c.setTransform(dpr, 0, 0, dpr, 0, 0);
-  c.clearRect(0, 0, w, h);
-  const css = getComputedStyle(document.documentElement);
-  let top = 3;
-  for (const s of live) for (const r of s.lv.buf) top = Math.max(top, Math.hypot(r[0], r[1], r[2]));
-  const y = v => h - 4 - (v / top) * (h - 8);
-  c.strokeStyle = css.getPropertyValue("--grid"); c.lineWidth = 1;
-  c.beginPath(); c.moveTo(0, y(1)); c.lineTo(w, y(1)); c.stroke();
-  c.fillStyle = css.getPropertyValue("--muted"); c.font = "11px " + css.getPropertyValue("--font-data");
-  c.fillText(top.toFixed(1) + "g", 2, 11);
-  c.fillText("1g", 2, y(1) - 3);
-  for (const s of live) {
-    const tag = sensorTag(s);
-    c.strokeStyle = /^[LRPB]$/.test(tag) ? css.getPropertyValue("--s" + tag) : css.getPropertyValue("--muted");
-    c.lineWidth = 2; c.lineJoin = "round";
-    c.beginPath();
-    s.lv.buf.forEach((r, i, buf) => {
-      const px = w - (buf.length - 1 - i) * (w / (LIVE_N - 1)), py = y(Math.hypot(r[0], r[1], r[2]));
-      i ? c.lineTo(px, py) : c.moveTo(px, py);
-    });
-    c.stroke();
-  }
 }
 
 // Draws three lines (x y z) from column `col`; the scale grows if values exceed `minRange`.
@@ -891,6 +1366,7 @@ function onPosition(pos) {
   gps.speeds.push({ t: p.t, v: speed || 0 });
   while (gps.speeds.length && p.t - gps.speeds[0].t > 5000) gps.speeds.shift();   // average over 5 s
   const v = gps.speeds.reduce((a, b) => a + b.v, 0) / gps.speeds.length;
+  gps.v = v;
   if (sessionRecording) gps.points.push({ ...p, speed: speed == null ? "" : speed.toFixed(2) });
   $("gpsSpeed").textContent = (v * 3.6).toFixed(1) + " km/h";
   $("gpsPace").textContent = v > 0.5 ? fmtPace(1000 / v) : "–";
