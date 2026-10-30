@@ -90,6 +90,20 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
 .legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); align-items: center; flex-wrap: wrap; }
 .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
 .live-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* All sensors at a glance: one tile per sensor, then one graph with a line per sensor */
+:root { --sL: #2a78d6; --sR: #eb6834; --sP: #1baf7a; --sB: #8a5cd6; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --sL: #3987e5; --sR: #d95926; --sP: #199e70; --sB: #9a72e8; } }
+:root[data-theme="dark"] { --sL: #3987e5; --sR: #d95926; --sP: #199e70; --sB: #9a72e8; }
+.overview { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+.overview h2 { font-size: 16px; margin: 0; }
+.tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.tile { border: 1px solid var(--line); border-left: 4px solid var(--c, var(--line)); border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.tile-head { display: flex; justify-content: space-between; align-items: center; gap: 6px; font-weight: 600; }
+.tile .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 8px; }
+.overview .label { text-transform: none; }
+.tile .label { font-size: 11px; }
+.tile .stat .v { font-size: 15px; }
+.overview canvas { width: 100%; height: 140px; display: block; }
 </style>
 </head>
 <body>
@@ -110,6 +124,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
     </div>
     <div class="row">
       <button id="btnGps" style="flex:1">GPS 켜기</button>
+      <button id="btnLiveAll" style="flex:1" disabled>모두 실시간 보기</button>
     </div>
     <div id="gpsBox" class="stats" hidden>
       <div class="stat"><span class="label">속도</span><span class="v" id="gpsSpeed">–</span></div>
@@ -118,6 +133,14 @@ footer { color: var(--muted); font-size: 12px; text-align: center; }
     </div>
     <div id="gpsInfo" class="msg" hidden></div>
     <div id="sessionInfo" class="msg">연결된 센서가 없어요.</div>
+  </section>
+
+  <section id="overview" class="overview" aria-label="모든 센서 실시간" hidden>
+    <div class="live-head"><h2>모든 센서 실시간</h2><button id="btnZeroAll">모두 기준 맞추기</button></div>
+    <div id="tiles" class="tiles"></div>
+    <div class="legend" id="ovLegend"></div>
+    <span class="label">가속도 크기 (g) · 최근 10초 · 1g = 가만히 있을 때</span>
+    <canvas id="ovGraph"></canvas>
   </section>
 
   <section id="cards" class="cards" aria-label="센서 목록">
@@ -134,7 +157,7 @@ const DATA    = "19b10013-e8f2-537e-4f6c-d104768a1214";
 const LIVE    = "19b10014-e8f2-537e-4f6c-d104768a1214";
 const END_IDX = 0xFFFFFFFF;
 const MARKER  = 0xFFFFFFFE;   // first sample of a recording: holds its start time
-const APP_VERSION = "웹 앱 v1.3 · 2026-10-29";
+const APP_VERSION = "웹 앱 v1.5 · 2026-10-30";
 
 const sensors = new Map();   // device.id -> sensor object
 let sessionName = null;
@@ -150,9 +173,10 @@ function parseStatus(text) {
   // "IDLE 1388/131072 3.95V", "REC 2500/131072 3.90V", "DL 500/1388 3.90V", "ERASING"
   const fw = (text.match(/\b(v\d+\.\d+)\b/) || [])[1] || null;
   const db = +((text.match(/(-\d+)dB/) || [])[1]) || null;   // Bluetooth signal, firmware v0.9+
+  const tag = (text.match(/@(\S+)/) || [])[1] || null;        // sensor's own name tag (L/R/P/B), firmware v1.0+
   const m = text.match(/^(\w+)\s+(\d+)\/(\d+)(?:\s+([\d.]+)V)?/);
-  if (!m) return { state: text.trim().split(" ")[0], a: null, b: null, volts: null, fw, db };
-  return { state: m[1], a: +m[2], b: +m[3], volts: m[4] ? +m[4] : null, fw, db };
+  if (!m) return { state: text.trim().split(" ")[0], a: null, b: null, volts: null, fw, db, tag };
+  return { state: m[1], a: +m[2], b: +m[3], volts: m[4] ? +m[4] : null, fw, db, tag };
 }
 
 function stateLabel(st) {
@@ -166,9 +190,13 @@ function render() {
   $("btnStart").disabled = connected.length === 0;
   $("btnStop").disabled = connected.length === 0;
   $("btnDlAll").disabled = dlAllRunning || !connected.some(canDownload);
+  const anyLive = list.some(s => s.live);
+  $("btnLiveAll").textContent = anyLive ? "모두 실시간 끄기" : "모두 실시간 보기";
+  $("btnLiveAll").disabled = !anyLive && !connected.some(canLive);
   $("sessionInfo").textContent = list.length === 0 ? "연결된 센서가 없어요."
     : `연결 ${connected.length}/${list.length}개` + (sessionName ? ` · 세션 ${sessionName}` : "") + (dlAllNote ? ` · ${dlAllNote}` : "");
   for (const s of list) renderCard(s);
+  renderOverview(list.filter(s => s.live));
 }
 
 function renderCard(s) {
@@ -213,7 +241,7 @@ function renderCard(s) {
     $("cards").appendChild(s.el);
   }
   const q = sel => s.el.querySelector(sel);
-  q(".name").textContent = (s.device.name || "RunSensor") + (s.status.fw ? ` · 펌웨어 ${s.status.fw}` : "");
+  q(".name").textContent = sensorName(s) + (s.status.fw ? ` · 펌웨어 ${s.status.fw}` : "");
   const st = s.connected ? s.status.state : "OFF";
   const pill = q(".pill");
   pill.textContent = s.connected ? stateLabel(st) : "연결 끊김";
@@ -230,9 +258,9 @@ function renderCard(s) {
   q('[data-a="dl"]').disabled = !s.connected || !s.hasData || st === "REC" || !!s.download;
   q('[data-a="erase"]').disabled = !s.connected || st === "REC" || !!s.download;
   q('[data-a="conn"]').textContent = s.connected ? "연결 끊기" : "다시 연결";
-  q('[data-a="live"]').textContent = s.live ? "실시간 끄기" : "실시간 보기";
+  q('[data-a="live"]').textContent = !s.live ? "실시간 보기" : s.detail ? "실시간 끄기" : "그래프 보기";
   q('[data-a="live"]').disabled = !s.connected || !s.hasLive || !!s.download;
-  q(".live").hidden = !s.live;
+  q(".live").hidden = !(s.live && s.detail);
   renderSignal(q('[data-k="sig"]'), s.status.db);
   const msg = q(".msg");
   msg.textContent = s.msg || "";
@@ -245,14 +273,14 @@ function signalBars(db) {
   return Math.max(1, Math.min(5, Math.floor((db + 100) / 10) + 1));
 }
 
-function renderSignal(el, db) {
+function renderSignal(el, db, compact) {
   const n = signalBars(db);
-  if (el.dataset.n === String(n) + db) return;
-  el.dataset.n = String(n) + db;
+  if (el.dataset.n === String(n) + db + !!compact) return;
+  el.dataset.n = String(n) + db + !!compact;
   const bars = [0, 1, 2, 3, 4].map(i =>
     `<rect class="${i < n ? "on" : "off"}" x="${i * 6}" y="${14 - (i + 1) * 2.8}" width="4" height="${(i + 1) * 2.8}" rx="1"/>`).join("");
   el.innerHTML = `<svg width="28" height="14" viewBox="0 0 28 14" aria-hidden="true">${bars}</svg>` +
-    `<span>${db == null ? "블루투스 감도 –" : `블루투스 ${n}/5 · ${db}dBm`}</span>`;
+    (compact ? "" : `<span>${db == null ? "블루투스 감도 –" : `블루투스 ${n}/5 · ${db}dBm`}</span>`);
   el.setAttribute("aria-label", db == null ? "블루투스 감도 알 수 없음" : `블루투스 감도 5칸 중 ${n}칸`);
 }
 
@@ -367,8 +395,9 @@ async function onCardAction(s, a) {
   } else if (a === "dl") {
     startDownload(s);
   } else if (a === "live") {
-    if (s.live) { s.live = false; await sendCmd(s, "l"); render(); }
-    else { startLive(s); await sendCmd(s, "L"); }
+    if (s.live && !s.detail) { s.detail = true; render(); requestAnimationFrame(drawLoop); }
+    else if (s.live) { await stopLive(s); render(); }
+    else { startLive(s, true); await sendCmd(s, "L"); }
   } else if (a === "zero") {
     if (s.lv && s.lv.grav) { s.lv.ref = s.lv.grav.slice(); setMsg(s, "지금 자세를 기준(0°)으로 정했어요."); }
   }
@@ -554,8 +583,14 @@ function finishDownload(s) {
 }
 
 // "RunSensor-L" -> "L"
+// Firmware v1.0+ tells its own name in the status; older firmware: the name the browser saw (may be an old cached one)
+function sensorName(s) {
+  if (s.status.tag) s.tag = s.status.tag;
+  return s.tag ? "RunSensor-" + s.tag : (s.device.name || "RunSensor");
+}
+
 function sensorTag(s) {
-  return (s.device.name || "RunSensor").replace(/^RunSensor-?/, "") || "S";
+  return sensorName(s).replace(/^RunSensor-?/, "") || "S";
 }
 
 function saveFile(name, text, type) {
@@ -572,12 +607,72 @@ function saveFile(name, text, type) {
 
 const LIVE_N = 500;   // 10 s at 50Hz
 
-function startLive(s) {
+function startLive(s, detail) {
   s.live = true;
+  s.detail = !!detail;
   s.lv = { buf: [], grav: null, ref: null, count: 0, t0: Date.now(), rate: 0, steps: makeStepDetector() };
   keepScreenOn();
   render();
   requestAnimationFrame(drawLoop);
+}
+
+async function stopLive(s) {
+  s.live = false;
+  s.detail = false;
+  await sendCmd(s, "l");
+}
+
+function canLive(s) {
+  return s.connected && s.hasLive && !s.download;
+}
+
+// "모두 실시간 보기": every connected sensor streams; values show in the tiles, graphs stay folded in the cards
+$("btnLiveAll").addEventListener("click", async () => {
+  const list = [...sensors.values()];
+  if (list.some(s => s.live)) {
+    for (const s of list) if (s.live) await stopLive(s);
+  } else {
+    for (const s of list) if (canLive(s)) { startLive(s, false); await sendCmd(s, "L"); }
+  }
+  render();
+});
+$("btnZeroAll").addEventListener("click", () => {
+  for (const s of sensors.values()) if (s.live && s.lv && s.lv.grav) s.lv.ref = s.lv.grav.slice();
+});
+
+// Fixed colours by position so L/R/P/B look the same every time
+function sensorColor(s) {
+  const tag = sensorTag(s);
+  return /^[LRPB]$/.test(tag) ? `var(--s${tag})` : "var(--muted)";
+}
+const POS_NAME = { L: "왼발", R: "오른발", P: "천골", B: "등" };
+
+function renderOverview(live) {
+  $("overview").hidden = live.length === 0;
+  const box = $("tiles");
+  for (const s of sensors.values()) if (s.tile && !s.live) { s.tile.remove(); s.tile = null; }
+  const order = ["L", "R", "P", "B"], rank = s => (order.indexOf(sensorTag(s)) + 5) % 5;
+  live.sort((a, b) => rank(a) - rank(b));
+  for (const s of live) {
+    if (!s.tile) {
+      s.tile = document.createElement("div");
+      s.tile.className = "tile";
+      s.tile.innerHTML = `
+        <div class="tile-head"><span data-k="tname"></span><span class="signal" data-k="tsig" role="img"></span></div>
+        <div class="stats">
+          <div class="stat"><span class="label">케이던스</span><span class="v" data-k="cad">–</span></div>
+          <div class="stat"><span class="label">기울기</span><span class="v" data-k="tilt">–</span></div>
+          <div class="stat"><span class="label">가속도</span><span class="v" data-k="acc">–</span></div>
+          <div class="stat"><span class="label">회전</span><span class="v" data-k="rot">–</span></div>
+        </div>`;
+    }
+    box.appendChild(s.tile);   // keeps L R P B order
+    const tag = sensorTag(s);
+    s.tile.style.setProperty("--c", sensorColor(s));
+    s.tile.querySelector('[data-k="tname"]').textContent = POS_NAME[tag] ? `${tag} · ${POS_NAME[tag]}` : sensorName(s);
+    renderSignal(s.tile.querySelector('[data-k="tsig"]'), s.status.db, true);
+  }
+  $("ovLegend").innerHTML = live.map(s => `<span><i style="background:${sensorColor(s)}"></i>${sensorTag(s)}</span>`).join("");
 }
 
 function onLive(s, dv) {
@@ -608,27 +703,74 @@ function angleDeg(u, v) {
 
 function drawLoop() {
   let any = false;
+  const live = [];
   for (const s of sensors.values()) {
     if (!s.live || !s.lv || !s.el) continue;
     any = true;
+    live.push(s);
     const L = s.lv, q = sel => s.el.querySelector(sel);
-    const last = L.buf[L.buf.length - 1];
-    if (last) {
-      // until "기준 맞추기" is pressed, tilt is measured from straight down (gravity on z only)
-      const ref = L.ref || [0, 0, 1];
-      q('[data-k="tilt"]').textContent = Math.round(angleDeg(L.grav, ref)) + "°";
-      const recent = L.buf.slice(-25);   // last 0.5 s
-      q('[data-k="acc"]').textContent = Math.max(...recent.map(r => Math.hypot(r[0], r[1], r[2]))).toFixed(1) + " g";
-      q('[data-k="rot"]').textContent = Math.round(Math.max(...recent.map(r => Math.hypot(r[3], r[4], r[5])))) + "°/s";
-      // a foot sensor (L or R) sees every second step
-      const cad = cadence(L.steps, /^[LR]$/.test(sensorTag(s)) ? 2 : 1);
-      q('[data-k="cad"]').textContent = cad ? Math.round(cad) + " 걸음/분" : "–";
+    const v = liveValues(s);
+    if (v) {
+      for (const el of [s.el, s.tile]) {
+        if (!el || (el === s.el && !s.detail)) continue;
+        for (const k of ["tilt", "acc", "rot", "cad"]) el.querySelector(`[data-k="${k}"]`).textContent = el === s.tile ? v[k].replace(" 걸음", "") : v[k];
+      }
       q('[data-k="rate"]').textContent = L.rate ? `수신 ${Math.round(L.rate)}Hz` : "";
     }
-    drawGraph(q('[data-c="acc"]'), L.buf, 0, 2);
-    drawGraph(q('[data-c="gyro"]'), L.buf, 3, 250);
+    if (s.detail) {
+      drawGraph(q('[data-c="acc"]'), L.buf, 0, 2);
+      drawGraph(q('[data-c="gyro"]'), L.buf, 3, 250);
+    }
   }
+  if (!$("overview").hidden) drawOverview($("ovGraph"), live);
   if (any) requestAnimationFrame(drawLoop);
+}
+
+function liveValues(s) {
+  const L = s.lv;
+  if (!L.buf.length) return null;
+  // until "기준 맞추기" is pressed, tilt is measured from straight down (gravity on z only)
+  const ref = L.ref || [0, 0, 1];
+  const recent = L.buf.slice(-25);   // last 0.5 s
+  // a foot sensor (L or R) sees every second step
+  const cad = cadence(L.steps, /^[LR]$/.test(sensorTag(s)) ? 2 : 1);
+  return {
+    tilt: Math.round(angleDeg(L.grav, ref)) + "°",
+    acc: Math.max(...recent.map(r => Math.hypot(r[0], r[1], r[2]))).toFixed(1) + " g",
+    rot: Math.round(Math.max(...recent.map(r => Math.hypot(r[3], r[4], r[5])))) + "°/s",
+    cad: cad ? Math.round(cad) + " 걸음/분" : "–",
+  };
+}
+
+// One line per sensor: total acceleration, so foot strikes and body bounce can be compared side by side
+function drawOverview(cv, live) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth, h = cv.clientHeight;
+  if (!w) return;
+  if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+  const c = cv.getContext("2d");
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c.clearRect(0, 0, w, h);
+  const css = getComputedStyle(document.documentElement);
+  let top = 3;
+  for (const s of live) for (const r of s.lv.buf) top = Math.max(top, Math.hypot(r[0], r[1], r[2]));
+  const y = v => h - 4 - (v / top) * (h - 8);
+  c.strokeStyle = css.getPropertyValue("--grid"); c.lineWidth = 1;
+  c.beginPath(); c.moveTo(0, y(1)); c.lineTo(w, y(1)); c.stroke();
+  c.fillStyle = css.getPropertyValue("--muted"); c.font = "11px " + css.getPropertyValue("--font-data");
+  c.fillText(top.toFixed(1) + "g", 2, 11);
+  c.fillText("1g", 2, y(1) - 3);
+  for (const s of live) {
+    const tag = sensorTag(s);
+    c.strokeStyle = /^[LRPB]$/.test(tag) ? css.getPropertyValue("--s" + tag) : css.getPropertyValue("--muted");
+    c.lineWidth = 2; c.lineJoin = "round";
+    c.beginPath();
+    s.lv.buf.forEach((r, i, buf) => {
+      const px = w - (buf.length - 1 - i) * (w / (LIVE_N - 1)), py = y(Math.hypot(r[0], r[1], r[2]));
+      i ? c.lineTo(px, py) : c.moveTo(px, py);
+    });
+    c.stroke();
+  }
 }
 
 // Draws three lines (x y z) from column `col`; the scale grows if values exceed `minRange`.
