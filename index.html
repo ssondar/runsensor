@@ -54,6 +54,13 @@ button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 button:disabled { opacity: .45; cursor: default; }
 .primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); flex: 1; }
 .stop { background: var(--rec); color: #fff; border-color: var(--rec); flex: 1; }
+.txrow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.txrow > span { font-size: 13px; color: var(--muted); }
+.seg { display: flex; flex: 1; min-width: 180px; }
+.seg button { flex: 1; border-radius: 0; margin-left: -1px; font-weight: 500; }
+.seg button:first-child { border-radius: 10px 0 0 10px; margin-left: 0; }
+.seg button:last-child { border-radius: 0 10px 10px 0; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; position: relative; }
 .label { font-size: 12px; letter-spacing: .04em; color: var(--muted); text-transform: uppercase; }
 .mono { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
 .cards { display: flex; flex-direction: column; gap: 12px; }
@@ -151,6 +158,15 @@ body.wide main { max-width: 1200px; }
       <button id="btnGps" style="flex:1">GPS 켜기</button>
       <button id="btnLiveAll" style="flex:1" disabled>모두 실시간 보기</button>
     </div>
+    <div class="txrow">
+      <span>송신 세기</span>
+      <div class="seg" role="group" aria-label="센서 송신 세기">
+        <button data-tx="8" aria-pressed="false" title="+8 dBm">상</button>
+        <button data-tx="0" aria-pressed="false" title="0 dBm">중</button>
+        <button data-tx="-8" aria-pressed="false" title="-8 dBm">하</button>
+      </div>
+    </div>
+    <div id="txInfo" class="msg">상 +8dBm · 중 0dBm(기본) · 하 -8dBm. 상은 더 멀리 닿고 배터리를 조금 더 써요. 펌웨어 v1.2부터 적용돼요.</div>
     <div id="gpsBox" class="stats" hidden>
       <div class="stat"><span class="label">속도</span><span class="v" id="gpsSpeed">–</span></div>
       <div class="stat"><span class="label">페이스</span><span class="v" id="gpsPace">–</span></div>
@@ -197,7 +213,7 @@ const DATA    = "19b10013-e8f2-537e-4f6c-d104768a1214";
 const LIVE    = "19b10014-e8f2-537e-4f6c-d104768a1214";
 const END_IDX = 0xFFFFFFFF;
 const MARKER  = 0xFFFFFFFE;   // first sample of a recording: holds its start time
-const APP_VERSION = "웹 앱 v1.7 · 2026-10-30";
+const APP_VERSION = "웹 앱 v1.8 · 2026-10-30";
 
 const sensors = new Map();   // device.id -> sensor object
 let sessionName = null;
@@ -214,9 +230,11 @@ function parseStatus(text) {
   const fw = (text.match(/\b(v\d+\.\d+)\b/) || [])[1] || null;
   const db = +((text.match(/(-\d+)dB/) || [])[1]) || null;   // Bluetooth signal, firmware v0.9+
   const tag = (text.match(/@(\S+)/) || [])[1] || null;        // sensor's own name tag (L/R/P/B), firmware v1.0+
+  const txm = text.match(/\sT([+-]?\d+)\b/);                  // transmit power in dBm, firmware v1.2+
+  const tx = txm ? +txm[1] : null;
   const m = text.match(/^(\w+)\s+(\d+)\/(\d+)(?:\s+([\d.]+)V)?/);
-  if (!m) return { state: text.trim().split(" ")[0], a: null, b: null, volts: null, fw, db, tag };
-  return { state: m[1], a: +m[2], b: +m[3], volts: m[4] ? +m[4] : null, fw, db, tag };
+  if (!m) return { state: text.trim().split(" ")[0], a: null, b: null, volts: null, fw, db, tag, tx };
+  return { state: m[1], a: +m[2], b: +m[3], volts: m[4] ? +m[4] : null, fw, db, tag, tx };
 }
 
 function stateLabel(st) {
@@ -301,7 +319,7 @@ function renderCard(s) {
   q('[data-a="live"]').textContent = !s.live ? "실시간 보기" : s.detail ? "실시간 끄기" : "그래프 보기";
   q('[data-a="live"]').disabled = !s.connected || !s.hasLive || !!s.download;
   q(".live").hidden = !(s.live && s.detail);
-  renderSignal(q('[data-k="sig"]'), s.status.db);
+  renderSignal(q('[data-k="sig"]'), s.status.db, false, s.status.tx);
   const msg = q(".msg");
   msg.textContent = s.msg || "";
   msg.classList.toggle("err", !!s.err);
@@ -313,14 +331,14 @@ function signalBars(db) {
   return Math.max(1, Math.min(5, Math.floor((db + 100) / 10) + 1));
 }
 
-function renderSignal(el, db, compact) {
+function renderSignal(el, db, compact, tx) {
   const n = signalBars(db);
-  if (el.dataset.n === String(n) + db + !!compact) return;
-  el.dataset.n = String(n) + db + !!compact;
+  if (el.dataset.n === String(n) + db + !!compact + tx) return;
+  el.dataset.n = String(n) + db + !!compact + tx;
   const bars = [0, 1, 2, 3, 4].map(i =>
     `<rect class="${i < n ? "on" : "off"}" x="${i * 6}" y="${14 - (i + 1) * 2.8}" width="4" height="${(i + 1) * 2.8}" rx="1"/>`).join("");
   el.innerHTML = `<svg width="28" height="14" viewBox="0 0 28 14" aria-hidden="true">${bars}</svg>` +
-    (compact ? "" : `<span>${db == null ? "블루투스 감도 –" : `블루투스 ${n}/5 · ${db}dBm`}</span>`);
+    (compact ? "" : `<span>${db == null ? "블루투스 감도 –" : `블루투스 ${n}/5 · ${db}dBm`}${tx == null ? "" : ` · 송신 ${txLabel(tx)}`}</span>`);
   el.setAttribute("aria-label", db == null ? "블루투스 감도 알 수 없음" : `블루투스 감도 5칸 중 ${n}칸`);
 }
 
@@ -339,6 +357,31 @@ async function sendCmd(s, c) {
     setMsg(s, "명령을 보내지 못했어요. 다시 눌러 보세요.", true);
   }
 }
+
+// Sensor transmit power (firmware v1.2+): 상 +8 dBm / 중 0 dBm / 하 -8 dBm. The sensor forgets it when switched off, so it is sent on every connect.
+let txPower = 0;
+try { const v = localStorage.getItem("runsensor.tx"); if (v !== null && [8, 0, -8].includes(+v)) txPower = +v; } catch (e) {}
+function txLabel(tx) { return tx >= 8 ? "상" : tx <= -8 ? "하" : tx === 0 ? "중" : `${tx}dBm`; }
+async function sendTxPower(s) {
+  if (!s.connected || fwNum(s) < 1.2) return false;
+  const buf = new Uint8Array([84, txPower & 0xff]);   // 'T' + int8 dBm
+  try { await s.cmd.writeValue(buf); return true; } catch (e) { return false; }
+}
+function renderTx() {
+  document.querySelectorAll("[data-tx]").forEach(b => b.setAttribute("aria-pressed", String(+b.dataset.tx === txPower)));
+}
+async function setTxPower(v) {
+  txPower = v;
+  try { localStorage.setItem("runsensor.tx", String(v)); } catch (e) {}
+  renderTx();
+  const list = [...sensors.values()].filter(s => s.connected);
+  let ok = 0, old = 0;
+  for (const s of list) { if (fwNum(s) < 1.2) old++; else if (await sendTxPower(s)) ok++; }
+  $("txInfo").textContent = list.length === 0 ? `송신 세기를 "${txLabel(v)}"(으)로 정했어요. 센서를 연결하면 바로 적용돼요.`
+    : `송신 세기 "${txLabel(v)}" 적용: 센서 ${ok}개` + (old ? ` · 펌웨어가 v1.2보다 예전인 센서 ${old}개는 바뀌지 않아요` : "");
+}
+document.querySelectorAll("[data-tx]").forEach(b => b.addEventListener("click", () => setTxPower(+b.dataset.tx)));
+renderTx();
 
 async function connectSensor(s) {
   let step = "연결";
@@ -381,6 +424,7 @@ async function connectSensor(s) {
     }
     s.live = false;
     s.connected = true;
+    await sendTxPower(s);
     setMsg(s, s.hasData ? "" : "센서 펌웨어가 예전 버전이라 내려받기를 쓸 수 없어요. 새 run_logger.ino를 올려 주세요.", !s.hasData);
   } catch (e) {
     s.connected = false;
